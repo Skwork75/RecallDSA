@@ -34,10 +34,10 @@ function App() {
             RecallDSA Prototype
           </span>
           <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
-            Review DSA questions from your backend API
+            Week Questions
           </h1>
           <p className="mt-4 max-w-2xl text-lg text-slate-300">
-            These questions are being loaded from the Django backend API using a modern Tailwind-powered interface.
+            These questions are in pattern wise format. You can click on the question link to open it in a new tab. 
           </p>
         </section>
 
