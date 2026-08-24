@@ -7,3 +7,8 @@ class Solved(models.Model):
 
     def __str__(self):
         return self.q_name
+class Pattern(models.Model):
+    p_name = models.CharField(max_length=100)
+
+    def __str__(self):
+        return self.p_name
