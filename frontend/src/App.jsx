@@ -66,13 +66,15 @@ function App() {
                 key={question.id ?? question.q_id}
                 className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 shadow-lg shadow-black/10"
               >
-                <h2 className="text-xl font-semibold text-white">
-                  {question.q_name || `Question ${question.q_id}`}
-                </h2>
-                <p className="mt-2 text-sm text-slate-400">Question ID: {question.q_id}</p>
-                {question.q_link ? (
+                <h2 className="text-xl font-semibold text-white">{question.title}</h2>
+                <p className="mt-3 text-sm text-slate-400">ID: {question.leetcode_id}</p>
+                <div className="mt-3 flex items-center gap-3 text-sm">
+                  <span className="font-medium text-amber-300">{question.difficulty}</span>
+                  <span className="text-cyan-300">{question.pattern?.p_name}</span>
+                </div>
+                {question.link ? (
                   <a
-                    href={question.q_link}
+                    href={question.link}
                     target="_blank"
                     rel="noreferrer"
                     className="mt-4 inline-flex items-center rounded-full border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-medium text-cyan-300 transition hover:border-cyan-400 hover:text-cyan-200"
@@ -80,6 +82,12 @@ function App() {
                     Open question
                   </a>
                 ) : null}
+                <button
+                  type="button"
+                  className="mt-3 inline-flex items-center rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400"
+                >
+                  ✓ Mark as Solved
+                </button>
               </li>
             ))}
           </ul>
