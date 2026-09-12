@@ -21,3 +21,6 @@ build/
 .idea/
 .DS_Store
 *.log
+
+# Local project notes
+docs/
