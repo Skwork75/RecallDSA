@@ -42,6 +42,8 @@ class ProblemSerializer(serializers.ModelSerializer):
 
 
 class UserProblemSerializer(serializers.ModelSerializer):
+    problem = ProblemSerializer(read_only=True)
+
     class Meta:
         model = UserProblem
-        fields = '__all__'
+        fields = ['id', 'problem', 'solved', 'confidence', 'last_reviewed', 'next_revision', 'revision_count']

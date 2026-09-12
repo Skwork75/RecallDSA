@@ -2,8 +2,9 @@ from django.contrib.auth import authenticate
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
-from .serializers import ProblemSerializer, RegisterSerializer, UserSerializer
-from .models import Problem
+from .serializers import ProblemSerializer, RegisterSerializer, UserProblemSerializer, UserSerializer
+from .models import Problem, UserProblem
+from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework import status
 
@@ -53,6 +54,41 @@ def login(request):
 @permission_classes([IsAuthenticated])
 def current_user(request):
     return Response(UserSerializer(request.user).data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def profile(request):
+    solved_problems = UserProblem.objects.filter(
+        user=request.user,
+        solved=True,
+    ).select_related('problem__pattern').order_by('-last_reviewed')
+    return Response({
+        'user': UserSerializer(request.user).data,
+        'solved_problems': UserProblemSerializer(solved_problems, many=True).data,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def mark_problem_solved(request, problem_id):
+    try:
+        problem = Problem.objects.get(id=problem_id)
+    except Problem.DoesNotExist:
+        return Response(
+            {'detail': 'Problem not found.'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    progress, _ = UserProblem.objects.update_or_create(
+        user=request.user,
+        problem=problem,
+        defaults={
+            'solved': True,
+            'last_reviewed': timezone.now(),
+        },
+    )
+    return Response(UserProblemSerializer(progress).data, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])

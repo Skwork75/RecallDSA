@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { AuthContext } from './AuthContext.js'
 const storageKey = 'recalldsa-auth'
 
@@ -89,8 +89,16 @@ export function AuthProvider({ children }) {
     }
   }
 
+  const authenticatedRequest = useCallback((path, options = {}) => request(path, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${auth?.access}`,
+      ...options.headers,
+    },
+  }), [auth?.access])
+
   return (
-    <AuthContext.Provider value={{ user, loading, register, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, register, login, logout, authenticatedRequest }}>
       {children}
     </AuthContext.Provider>
   )
