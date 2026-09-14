@@ -1,3 +1,4 @@
+from datetime import timedelta
 from django.contrib.auth import authenticate
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -7,6 +8,26 @@ from .models import Problem, UserProblem
 from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework import status
+
+
+def next_revision_for(confidence, difficulty, revision_count=0):
+    difficulty_bonus = {
+        'Easy': 1.0,
+        'Medium': 1.35,
+        'Hard': 1.7,
+    }.get(difficulty, 1.0)
+
+    interval_map = {
+        1: 1,
+        2: 2,
+        3: 4,
+        4: 9,
+        5: 16,
+    }
+
+    base_days = interval_map.get(confidence, 3)
+    spaced_days = max(base_days, 3 + revision_count)
+    return timezone.now() + timedelta(days=round(spaced_days * difficulty_bonus))
 
 @api_view(["GET"])
 def home(request):
@@ -80,14 +101,40 @@ def mark_problem_solved(request, problem_id):
             status=status.HTTP_404_NOT_FOUND,
         )
 
-    progress, _ = UserProblem.objects.update_or_create(
+    confidence = request.data.get('confidence')
+    if confidence is None:
+        confidence = 3
+
+    try:
+        confidence = int(confidence)
+    except (TypeError, ValueError):
+        return Response(
+            {'detail': 'Confidence must be an integer between 1 and 5.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if confidence < 1 or confidence > 5:
+        return Response(
+            {'detail': 'Confidence must be between 1 and 5.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    progress, _ = UserProblem.objects.get_or_create(
         user=request.user,
         problem=problem,
-        defaults={
-            'solved': True,
-            'last_reviewed': timezone.now(),
-        },
     )
+
+    progress.solved = True
+    progress.confidence = confidence
+    progress.last_reviewed = timezone.now()
+    progress.revision_count = (progress.revision_count or 0) + 1
+    progress.next_revision = next_revision_for(
+        confidence=confidence,
+        difficulty=problem.difficulty,
+        revision_count=progress.revision_count - 1,
+    )
+    progress.save()
+
     return Response(UserProblemSerializer(progress).data, status=status.HTTP_200_OK)
 
 
