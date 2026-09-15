@@ -40,3 +40,110 @@ body { transition: background .25s ease, color .25s ease; }
 :root[data-theme='dark'] .form-error { background: #422a23; color: #ffb29a; }
 @media (max-width: 540px) { .auth-nav-actions { gap: 12px; }.auth-nav-actions .nav-note { display: none; }.theme-toggle > span:last-child { display: none; } }
 @media (max-width: 540px) { .profile-popover { position: fixed; right: 5vw; top: 70px; width: min(320px, 90vw); } }
+
+/* Readability and polish pass */
+:root {
+	--muted: #5e6861;
+	--soft-muted: #718078;
+	--line: #cfd8d0;
+	--shadow: 0 24px 70px rgba(30, 44, 35, .12);
+}
+
+body { font-size: 15px; line-height: 1.5; }
+button, a, input { -webkit-tap-highlight-color: transparent; }
+button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid rgba(239, 131, 84, .45); outline-offset: 3px; }
+
+.brand-lockup { font-size: 21px; }
+.brand-mark { box-shadow: 0 5px 12px rgba(31, 89, 71, .18); }
+.eyebrow { font-size: 11px; font-weight: 700; }
+.nav-note, .auth-footer { color: #68746c; font-size: 11px; }
+.intro-copy, .subheading { color: #526158; }
+.signal-list p { color: #46534b; font-size: 14px; line-height: 1.45; }
+
+.auth-panel { background: rgba(255, 254, 250, .96); border-color: #cbd5cc; border-radius: 4px; }
+.auth-panel-header h2 { font-size: 37px; }
+.auth-panel-header > p:last-child { color: #59665e; font-size: 15px; }
+.auth-tabs button { color: #68746c; font-size: 14px; font-weight: 600; }
+.auth-form { gap: 19px; }
+.auth-form label { color: #36443c; font-size: 13px; }
+.auth-form input { border-color: #bcc9bf; font-size: 15px; min-height: 48px; }
+.auth-form input::placeholder { color: #7f8c84; }
+.primary-button { border-radius: 3px; font-size: 14px; min-height: 50px; }
+.secure-note { color: #68746c; font-size: 10px; }
+.form-error { border-left: 3px solid #c85e3c; font-size: 13px; }
+
+.topbar { background: color-mix(in srgb, var(--paper) 92%, transparent); position: sticky; top: 0; z-index: 10; }
+.topbar-actions { gap: 18px; }
+.theme-toggle, .logout-button { font-size: 13px; }
+.theme-toggle { border-radius: 3px; padding: 8px 12px; }
+.logout-button { font-weight: 600; }
+.dashboard-content { padding-top: 78px; }
+.subheading { font-size: 16px; }
+.streak-badge { background: var(--white); border-radius: 4px; box-shadow: 0 8px 22px rgba(30, 44, 35, .05); }
+.streak-badge strong { font-size: 14px; }
+.streak-badge small { font-size: 11px; }
+
+.metric-card { border-radius: 4px; box-shadow: 0 10px 28px rgba(30, 44, 35, .045); min-height: 174px; padding: 24px; }
+.metric-card strong { font-size: 39px; }
+.metric-card small, .metric-card a { font-size: 13px; }
+.metric-card a { font-weight: 700; }
+.metric-featured small { color: #d6e6dc; }
+.progress-track { height: 6px; }
+.section-heading h2 { font-size: 35px; }
+.result-count { font-size: 11px; }
+.search-field { border-color: #c2cec5; border-radius: 3px; box-shadow: 0 5px 16px rgba(30, 44, 35, .035); max-width: 390px; padding: 12px 14px; }
+.search-field input { font-size: 14px; }
+.filter-group button { font-size: 13px; font-weight: 600; }
+.problem-card { background: var(--white); border: 1px solid #cbd6cd; border-radius: 4px; box-shadow: 0 8px 24px rgba(30, 44, 35, .045); padding: 22px; transition: border-color .2s, box-shadow .2s, transform .2s; }
+.problem-card:hover { border-color: var(--green); box-shadow: 0 14px 30px rgba(30, 44, 35, .1); transform: translateY(-2px); }
+.difficulty-label, .question-number { font-size: 11px; font-weight: 700; }
+.problem-card h3 { font-size: 19px; line-height: 1.25; }
+.pattern-label { color: #5e6c63; font-size: 13px; }
+.card-footer a, .solve-button { font-size: 12px; font-weight: 700; }
+.empty-state { border: 1px dashed #b9c6bc; color: #536158; font-size: 15px; padding: 34px 20px; }
+
+.profile-popover, .review-modal { border-radius: 4px; }
+.profile-email, .profile-empty, .review-modal-subtitle, .review-meta span { font-size: 13px; }
+.solved-item strong { font-size: 13px; }
+.solved-item small, .profile-summary span { font-size: 11px; }
+.review-modal h2 { font-size: clamp(30px, 3vw, 44px); }
+.rating-option { border-radius: 3px; }
+
+:root[data-theme='dark'] {
+	--muted: #b9c6bd;
+	--soft-muted: #a7b5aa;
+	--line: #3c4c42;
+}
+:root[data-theme='dark'] .auth-panel { border-color: #405248; }
+:root[data-theme='dark'] .intro-copy,
+:root[data-theme='dark'] .subheading,
+:root[data-theme='dark'] .signal-list p,
+:root[data-theme='dark'] .auth-panel-header > p:last-child,
+:root[data-theme='dark'] .auth-form label,
+:root[data-theme='dark'] .pattern-label,
+:root[data-theme='dark'] .empty-state { color: #c5d0c8; }
+:root[data-theme='dark'] .nav-note,
+:root[data-theme='dark'] .auth-footer,
+:root[data-theme='dark'] .secure-note { color: #9aa99f; }
+:root[data-theme='dark'] .auth-form input { border-color: #52655a; }
+:root[data-theme='dark'] .auth-form input::placeholder { color: #94a49a; }
+:root[data-theme='dark'] .problem-card,
+:root[data-theme='dark'] .metric-card,
+:root[data-theme='dark'] .streak-badge,
+:root[data-theme='dark'] .search-field { border-color: #405248; }
+:root[data-theme='dark'] .problem-card:hover { border-color: var(--green); }
+
+@media (max-width: 800px) {
+	.dashboard-content { padding-top: 58px; }
+	.welcome-row h1 { max-width: 650px; }
+}
+
+@media (max-width: 540px) {
+	.brand-lockup { font-size: 19px; }
+	.auth-panel-header h2 { font-size: 32px; }
+	.dashboard-content { padding-top: 46px; }
+	.section-heading h2 { font-size: 30px; }
+	.metric-card { min-height: 145px; }
+	.problem-card { padding: 20px; }
+	.review-meta { align-items: flex-start; flex-direction: column; gap: 6px; }
+}
