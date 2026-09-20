@@ -212,6 +212,8 @@ This project originated from a personal challenge. As a computer science student
 
 RecallDSA is being built to solve this problem, not just for me, but for every learner who has felt the frustration of forgetting what they once solved.
 
+Revision is more important than solving a problem daily.
+
 ---
 
 ## Contributing
