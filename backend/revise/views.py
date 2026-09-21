@@ -90,6 +90,38 @@ def profile(request):
     })
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def today_revisions(request):
+    now = timezone.now()
+    due_items = UserProblem.objects.filter(
+        user=request.user,
+        solved=True,
+        next_revision__lte=now,
+    ).select_related('problem__pattern').order_by('next_revision')
+    return Response(UserProblemSerializer(due_items, many=True).data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def weekly_assessment(request):
+    now = timezone.now()
+    problems = UserProblem.objects.filter(
+        user=request.user,
+        solved=True,
+    ).select_related('problem__pattern').order_by('confidence', 'next_revision')
+
+    due_or_weak = [
+        item for item in problems
+        if item.next_revision is None or item.next_revision <= now or (item.confidence is not None and item.confidence <= 2)
+    ]
+
+    if not due_or_weak:
+        due_or_weak = list(problems[:5])
+
+    return Response(UserProblemSerializer(due_or_weak[:5], many=True).data)
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def mark_problem_solved(request, problem_id):

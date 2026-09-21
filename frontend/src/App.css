@@ -96,6 +96,20 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .filter-group button { font-size: 13px; font-weight: 600; }
 .problem-card { background: var(--white); border: 1px solid #cbd6cd; border-radius: 4px; box-shadow: 0 8px 24px rgba(30, 44, 35, .045); padding: 22px; transition: border-color .2s, box-shadow .2s, transform .2s; }
 .problem-card:hover { border-color: var(--green); box-shadow: 0 14px 30px rgba(30, 44, 35, .1); transform: translateY(-2px); }
+.revision-section { margin: 36px 0 48px; }
+.revision-list { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-top: 24px; }
+.revision-card { background: var(--white); border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 8px 24px rgba(30, 44, 35, .04); padding: 20px; }
+.revision-card-header { align-items: center; display: flex; gap: 8px; }
+.revision-card h3 { font-family: 'Fraunces', serif; font-size: 1.5rem; letter-spacing: -.04em; margin: 14px 0 8px; }
+.revision-card-footer { margin-top: 18px; }
+.revision-card-footer .primary-button { margin-top: 0; width: 100%; justify-content: center; }
+.assessment-section { margin: 36px 0 48px; }
+.assessment-grid { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-top: 24px; }
+.assessment-card { background: var(--white); border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 8px 24px rgba(30, 44, 35, .04); padding: 20px; }
+.assessment-card-header { align-items: center; display: flex; gap: 8px; }
+.assessment-card h3 { font-family: 'Fraunces', serif; font-size: 1.5rem; letter-spacing: -.04em; margin: 14px 0 8px; }
+.assessment-card-footer { margin-top: 18px; }
+.assessment-card-footer .primary-button { margin-top: 0; width: 100%; justify-content: center; }
 .difficulty-label, .question-number { font-size: 11px; font-weight: 700; }
 .problem-card h3 { font-size: 19px; line-height: 1.25; }
 .pattern-label { color: #5e6c63; font-size: 13px; }

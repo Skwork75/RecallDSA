@@ -130,6 +130,8 @@ function Dashboard({ theme, onToggle }) {
   const [profileOpen, setProfileOpen] = useState(false)
   const [solvingId, setSolvingId] = useState(null)
   const [reviewProblem, setReviewProblem] = useState(null)
+  const [todayRevisions, setTodayRevisions] = useState([])
+  const [weeklyAssessment, setWeeklyAssessment] = useState([])
 
   useEffect(() => {
     const fetchQuestions = async () => {
@@ -151,6 +153,18 @@ function Dashboard({ theme, onToggle }) {
       .catch(() => setProfile({ user, solved_problems: [] }))
   }, [authenticatedRequest, user])
 
+  useEffect(() => {
+    if (!user) return
+
+    authenticatedRequest('/api/revisions/today/')
+      .then(setTodayRevisions)
+      .catch(() => setTodayRevisions([]))
+
+    authenticatedRequest('/api/assessments/weekly/')
+      .then(setWeeklyAssessment)
+      .catch(() => setWeeklyAssessment([]))
+  }, [authenticatedRequest, user])
+
   const markSolved = async (problemId, confidence = 3) => {
     setSolvingId(problemId)
     try {
@@ -159,8 +173,12 @@ function Dashboard({ theme, onToggle }) {
         body: JSON.stringify({ confidence }),
       })
       setSolvedIds((current) => new Set([...current, problemId]))
-      const updatedProfile = await authenticatedRequest('/api/auth/profile/')
+      const [updatedProfile, nextDue] = await Promise.all([
+        authenticatedRequest('/api/auth/profile/'),
+        authenticatedRequest('/api/revisions/today/'),
+      ])
       setProfile(updatedProfile)
+      setTodayRevisions(nextDue)
       setReviewProblem(null)
     } catch (solveError) {
       setError(solveError.message)
@@ -191,6 +209,14 @@ function Dashboard({ theme, onToggle }) {
       <div className="dashboard-content">
         <section className="welcome-row"><div><p className="eyebrow">YOUR NEXT REP</p><h1>Ready when you are, {firstName}.</h1><p className="subheading">A small, steady review keeps your instincts sharp.</p></div><div className="streak-badge"><span>✦</span><div><strong>{profile?.solved_problems?.length ? `${Math.min(profile.solved_problems.length, 7)} day` : '0 day'}</strong><small>current streak</small></div></div></section>
         <section className="metrics-row"><div className="metric-card metric-featured"><span className="metric-icon">◎</span><strong>{questions.length}</strong><small>problems in library</small><div className="metric-line" /></div><div className="metric-card"><span className="metric-icon">◌</span><strong>{dueForReview}</strong><small>due for review</small><a href="#library">Start a review <span>↗</span></a></div><div className="metric-card"><span className="metric-icon">↗</span><strong>{profile ? Math.min(100, Math.round((profile.solved_problems.length / Math.max(questions.length, 1)) * 100)) : 0}%</strong><small>weekly progress</small><div className="progress-track"><span style={{ width: `${profile ? Math.min(100, Math.round((profile.solved_problems.length / Math.max(questions.length, 1)) * 100)) : 0}%` }} /></div></div></section>
+        <section className="revision-section">
+          <div className="section-heading"><div><p className="eyebrow">TODAY'S REVISION</p><h2>{todayRevisions.length === 0 ? 'Nothing due today' : `You have ${todayRevisions.length} problem${todayRevisions.length === 1 ? '' : 's'} to revise.`}</h2></div><span className="result-count">{todayRevisions.length} due</span></div>
+          {todayRevisions.length === 0 ? <div className="empty-state">You are all caught up. Come back later for the next revision cycle.</div> : <div className="revision-list">{todayRevisions.map((progress) => <article className="revision-card" key={progress.id}><div className="revision-card-header"><span className={`difficulty-dot ${difficultyStyles[progress.problem.difficulty]}`} /><span className="difficulty-label">{progress.problem.difficulty}</span></div><h3>{progress.problem.title}</h3><p className="pattern-label">{progress.problem.pattern?.p_name || 'Uncategorized pattern'}</p><div className="revision-card-footer"><button className="primary-button" onClick={() => setReviewProblem({ ...progress.problem, id: progress.problem.id })} type="button">Start Revision</button></div></article>)}</div>}
+        </section>
+        <section className="assessment-section">
+          <div className="section-heading"><div><p className="eyebrow">WEEKLY ASSESSMENT</p><h2>{weeklyAssessment.length === 0 ? 'No assessment set yet' : 'This week’s focus list'}</h2></div><span className="result-count">{weeklyAssessment.length} selected</span></div>
+          {weeklyAssessment.length === 0 ? <div className="empty-state">Your weekly assessment will surface your weakest and most overdue problems.</div> : <div className="assessment-grid">{weeklyAssessment.map((progress) => <article className="assessment-card" key={progress.id}><div className="assessment-card-header"><span className={`difficulty-dot ${difficultyStyles[progress.problem.difficulty]}`} /><span className="difficulty-label">{progress.problem.difficulty}</span></div><h3>{progress.problem.title}</h3><p className="pattern-label">{progress.problem.pattern?.p_name || 'Uncategorized pattern'}</p><div className="assessment-card-footer"><button className="primary-button" onClick={() => setReviewProblem({ ...progress.problem, id: progress.problem.id })} type="button">Review this problem</button></div></article>)}</div>}
+        </section>
         <section className="library-section" id="library">
           <div className="section-heading"><div><p className="eyebrow">YOUR LIBRARY</p><h2>Problem patterns</h2></div><span className="result-count">{filteredQuestions.length} shown</span></div>
           <div className="library-tools"><label className="search-field"><span aria-hidden="true">⌕</span><input onChange={(event) => setQuery(event.target.value)} placeholder="Search problems or patterns" value={query} /></label><div className="filter-group" aria-label="Filter by difficulty">{['All', 'Easy', 'Medium', 'Hard'].map((option) => <button className={difficulty === option ? 'active' : ''} key={option} onClick={() => setDifficulty(option)} type="button">{option}</button>)}</div></div>
