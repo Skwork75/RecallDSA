@@ -1,10 +1,12 @@
 from datetime import timedelta
 from django.contrib.auth import authenticate
+from django.db import transaction
+from django.db.models import Avg, Count
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from .serializers import ProblemSerializer, RegisterSerializer, UserProblemSerializer, UserSerializer
-from .models import Problem, UserProblem
+from .models import Problem, ReviewEvent, UserProblem
 from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework import status
@@ -122,8 +124,90 @@ def weekly_assessment(request):
     return Response(UserProblemSerializer(due_or_weak[:5], many=True).data)
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def dashboard(request):
+    user = request.user
+    now = timezone.now()
+    week_start = now - timedelta(days=7)
+    progress_items = UserProblem.objects.filter(
+        user=user,
+        solved=True,
+    ).select_related('problem__pattern')
+    events = ReviewEvent.objects.filter(user=user).select_related('problem__pattern')
+
+    pattern_totals = {}
+    event_problem_ids = set()
+    review_dates = set()
+    for event in events:
+        pattern = event.problem.pattern
+        totals = pattern_totals.setdefault(pattern.id, {
+            'id': pattern.id,
+            'name': pattern.p_name,
+            'confidence_total': 0,
+            'review_count': 0,
+        })
+        totals['confidence_total'] += event.confidence
+        totals['review_count'] += 1
+        event_problem_ids.add(event.problem_id)
+        review_dates.add(timezone.localdate(event.reviewed_at))
+
+    for progress in progress_items:
+        if progress.last_reviewed:
+            review_dates.add(timezone.localdate(progress.last_reviewed))
+        if progress.confidence is None or progress.problem_id in event_problem_ids:
+            continue
+        pattern = progress.problem.pattern
+        totals = pattern_totals.setdefault(pattern.id, {
+            'id': pattern.id,
+            'name': pattern.p_name,
+            'confidence_total': 0,
+            'review_count': 0,
+        })
+        totals['confidence_total'] += progress.confidence
+        totals['review_count'] += 1
+
+    patterns = [
+        {
+            'id': totals['id'],
+            'name': totals['name'],
+            'average_confidence': round(totals['confidence_total'] / totals['review_count'], 2),
+            'review_count': totals['review_count'],
+        }
+        for totals in pattern_totals.values()
+    ]
+    patterns.sort(key=lambda item: item['average_confidence'])
+    strongest_pattern = max(patterns, key=lambda item: item['average_confidence'], default=None)
+    weakest_pattern = min(patterns, key=lambda item: item['average_confidence'], default=None)
+
+    today = timezone.localdate(now)
+    streak = 0
+    streak_day = today if today in review_dates else today - timedelta(days=1)
+    while streak_day in review_dates:
+        streak += 1
+        streak_day -= timedelta(days=1)
+
+    due_query = UserProblem.objects.filter(user=user, solved=True, next_revision__lte=now)
+    completed_due_reviews = events.filter(scheduled_for__gte=week_start, scheduled_for__lte=now).count()
+    pending_due_reviews = due_query.filter(next_revision__gte=week_start).count()
+    due_review_total = completed_due_reviews + pending_due_reviews
+    completion_rate = round(completed_due_reviews * 100 / due_review_total) if due_review_total else 0
+
+    return Response({
+        'problems_solved': progress_items.count(),
+        'problems_due_today': due_query.count(),
+        'revision_streak': streak,
+        'strongest_pattern': strongest_pattern,
+        'weakest_pattern': weakest_pattern,
+        'pattern_analysis': patterns,
+        'revision_completion_rate': completion_rate,
+        'completion_window_days': 7,
+    })
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@transaction.atomic
 def mark_problem_solved(request, problem_id):
     try:
         problem = Problem.objects.get(id=problem_id)
@@ -156,9 +240,11 @@ def mark_problem_solved(request, problem_id):
         problem=problem,
     )
 
+    reviewed_at = timezone.now()
+    scheduled_for = progress.next_revision if progress.revision_count else None
     progress.solved = True
     progress.confidence = confidence
-    progress.last_reviewed = timezone.now()
+    progress.last_reviewed = reviewed_at
     progress.revision_count = (progress.revision_count or 0) + 1
     progress.next_revision = next_revision_for(
         confidence=confidence,
@@ -166,6 +252,13 @@ def mark_problem_solved(request, problem_id):
         revision_count=progress.revision_count - 1,
     )
     progress.save()
+    ReviewEvent.objects.create(
+        user=request.user,
+        problem=problem,
+        confidence=confidence,
+        scheduled_for=scheduled_for,
+        reviewed_at=reviewed_at,
+    )
 
     return Response(UserProblemSerializer(progress).data, status=status.HTTP_200_OK)
 

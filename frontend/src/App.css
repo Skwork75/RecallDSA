@@ -110,6 +110,32 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .assessment-card h3 { font-family: 'Fraunces', serif; font-size: 1.5rem; letter-spacing: -.04em; margin: 14px 0 8px; }
 .assessment-card-footer { margin-top: 18px; }
 .assessment-card-footer .primary-button { margin-top: 0; width: 100%; justify-content: center; }
+.metrics-row { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 42px 0 55px; }
+.pattern-metric strong { font-family: 'DM Sans', sans-serif; font-size: 20px; letter-spacing: 0; line-height: 1.2; overflow-wrap: anywhere; }
+.pattern-analysis-section { margin: 36px 0 52px; }
+.analysis-explanation { color: var(--muted); font-size: 13px; margin: 18px 0 0; }
+.pattern-analysis-list { margin-top: 18px; }
+.pattern-analysis-row { align-items: center; border-bottom: 1px solid var(--line); display: grid; gap: 18px; grid-template-columns: minmax(150px, 1fr) minmax(100px, 2fr) 38px 100px; padding: 15px 0; }
+.pattern-analysis-name { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.pattern-analysis-name strong { font-size: 14px; }
+.pattern-analysis-name small { color: var(--muted); font-size: 11px; }
+.pattern-confidence-track { background: color-mix(in srgb, var(--line) 70%, transparent); height: 8px; overflow: hidden; }
+.pattern-confidence-track span { background: var(--green); display: block; height: 100%; transition: width .3s ease; }
+.pattern-confidence-track span.needs-focus { background: var(--orange); }
+.pattern-confidence-score { font-family: 'DM Mono', monospace; font-size: 13px; text-align: right; }
+.pattern-status { color: var(--green); font-size: 11px; font-weight: 700; text-align: right; }
+.pattern-status.needs-focus { color: #b94e31; }
+:root[data-theme='dark'] .pattern-status.needs-focus { color: #ffad8f; }
+@media (max-width: 800px) {
+	.metrics-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	.pattern-analysis-row { gap: 10px; grid-template-columns: minmax(120px, 1fr) minmax(70px, 1.4fr) 34px 86px; }
+}
+@media (max-width: 540px) {
+	.metrics-row { grid-template-columns: 1fr; }
+	.pattern-analysis-row { grid-template-columns: minmax(0, 1fr) 34px; }
+	.pattern-confidence-track, .pattern-status { grid-column: 1 / -1; }
+	.pattern-status { text-align: left; }
+}
 .difficulty-label, .question-number { font-size: 11px; font-weight: 700; }
 .problem-card h3 { font-size: 19px; line-height: 1.25; }
 .pattern-label { color: #5e6c63; font-size: 13px; }

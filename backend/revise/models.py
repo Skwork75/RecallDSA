@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 
 class Solved(models.Model):
     q_id = models.IntegerField()
@@ -48,3 +49,21 @@ class UserProblem(models.Model):
 
     def __str__(self):
         return f'{self.user} - {self.problem}'
+
+
+class ReviewEvent(models.Model):
+    user = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, related_name='review_events')
+    problem = models.ForeignKey(Problem, on_delete=models.CASCADE, related_name='review_events')
+    confidence = models.PositiveSmallIntegerField()
+    scheduled_for = models.DateTimeField(null=True, blank=True)
+    reviewed_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ['reviewed_at']
+        indexes = [
+            models.Index(fields=['user', 'reviewed_at'], name='review_user_reviewed_idx'),
+            models.Index(fields=['user', 'scheduled_for'], name='review_user_due_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.user} - {self.problem} ({self.confidence}/5)'

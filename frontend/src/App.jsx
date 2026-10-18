@@ -132,6 +132,7 @@ function Dashboard({ theme, onToggle }) {
   const [reviewProblem, setReviewProblem] = useState(null)
   const [todayRevisions, setTodayRevisions] = useState([])
   const [weeklyAssessment, setWeeklyAssessment] = useState([])
+  const [dashboardMetrics, setDashboardMetrics] = useState(null)
 
   useEffect(() => {
     const fetchQuestions = async () => {
@@ -163,6 +164,10 @@ function Dashboard({ theme, onToggle }) {
     authenticatedRequest('/api/assessments/weekly/')
       .then(setWeeklyAssessment)
       .catch(() => setWeeklyAssessment([]))
+
+    authenticatedRequest('/api/dashboard/')
+      .then(setDashboardMetrics)
+      .catch(() => setDashboardMetrics(null))
   }, [authenticatedRequest, user])
 
   const markSolved = async (problemId, confidence = 3) => {
@@ -173,12 +178,16 @@ function Dashboard({ theme, onToggle }) {
         body: JSON.stringify({ confidence }),
       })
       setSolvedIds((current) => new Set([...current, problemId]))
-      const [updatedProfile, nextDue] = await Promise.all([
+      const [updatedProfile, nextDue, updatedAssessment, updatedMetrics] = await Promise.all([
         authenticatedRequest('/api/auth/profile/'),
         authenticatedRequest('/api/revisions/today/'),
+        authenticatedRequest('/api/assessments/weekly/'),
+        authenticatedRequest('/api/dashboard/'),
       ])
       setProfile(updatedProfile)
       setTodayRevisions(nextDue)
+      setWeeklyAssessment(updatedAssessment)
+      setDashboardMetrics(updatedMetrics)
       setReviewProblem(null)
     } catch (solveError) {
       setError(solveError.message)
@@ -186,15 +195,6 @@ function Dashboard({ theme, onToggle }) {
       setSolvingId(null)
     }
   }
-
-  const dueForReview = useMemo(() => {
-    if (!profile) return 0
-    const now = new Date()
-    return profile.solved_problems.filter((progress) => {
-      if (!progress.next_revision) return false
-      return new Date(progress.next_revision) <= now
-    }).length
-  }, [profile])
 
   const filteredQuestions = useMemo(() => questions.filter((question) => {
     const matchesDifficulty = difficulty === 'All' || question.difficulty === difficulty
@@ -208,8 +208,20 @@ function Dashboard({ theme, onToggle }) {
       <header className="topbar"><Logo /><div className="topbar-actions"><ThemeToggle onToggle={onToggle} theme={theme} /><button className="user-chip" onClick={() => setProfileOpen((open) => !open)} type="button" aria-expanded={profileOpen}><span>{user?.username?.charAt(0).toUpperCase()}</span><strong>{user?.username}</strong></button><button className="logout-button" onClick={logout} type="button">Sign out</button>{profileOpen && profile && <ProfilePanel onClose={() => setProfileOpen(false)} profile={profile} />}</div></header>
       <div className="dashboard-content">
         <section className="welcome-row"><div><p className="eyebrow">YOUR NEXT REP</p><h1>Ready when you are, {firstName}.</h1><p className="subheading">A small, steady review keeps your instincts sharp.</p></div><div className="streak-badge"><span>✦</span><div><strong>{profile?.solved_problems?.length ? `${Math.min(profile.solved_problems.length, 7)} day` : '0 day'}</strong><small>current streak</small></div></div></section>
-        <section className="metrics-row"><div className="metric-card metric-featured"><span className="metric-icon">◎</span><strong>{questions.length}</strong><small>problems in library</small><div className="metric-line" /></div><div className="metric-card"><span className="metric-icon">◌</span><strong>{dueForReview}</strong><small>due for review</small><a href="#library">Start a review <span>↗</span></a></div><div className="metric-card"><span className="metric-icon">↗</span><strong>{profile ? Math.min(100, Math.round((profile.solved_problems.length / Math.max(questions.length, 1)) * 100)) : 0}%</strong><small>weekly progress</small><div className="progress-track"><span style={{ width: `${profile ? Math.min(100, Math.round((profile.solved_problems.length / Math.max(questions.length, 1)) * 100)) : 0}%` }} /></div></div></section>
-        <section className="revision-section">
+        <section className="metrics-row" aria-label="Your revision dashboard">
+          <div className="metric-card metric-featured"><span className="metric-icon">◎</span><strong>{dashboardMetrics?.problems_solved ?? '—'}</strong><small>problems solved</small><div className="metric-line" /></div>
+          <div className="metric-card"><span className="metric-icon">◌</span><strong>{dashboardMetrics?.problems_due_today ?? '—'}</strong><small>problems due today</small><a href="#today-revisions">Start a review <span>↗</span></a></div>
+          <div className="metric-card"><span className="metric-icon">✦</span><strong>{dashboardMetrics ? `${dashboardMetrics.revision_streak} day${dashboardMetrics.revision_streak === 1 ? '' : 's'}` : '—'}</strong><small>revision streak</small></div>
+          <div className="metric-card pattern-metric"><span className="metric-icon">↗</span><strong>{dashboardMetrics?.strongest_pattern?.name ?? '—'}</strong><small>{dashboardMetrics?.strongest_pattern ? `strongest · ${dashboardMetrics.strongest_pattern.average_confidence}/5 confidence` : 'strongest pattern'}</small></div>
+          <div className="metric-card pattern-metric"><span className="metric-icon">⌁</span><strong>{dashboardMetrics?.weakest_pattern?.name ?? '—'}</strong><small>{dashboardMetrics?.weakest_pattern ? `weakest · ${dashboardMetrics.weakest_pattern.average_confidence}/5 confidence` : 'weakest pattern'}</small></div>
+          <div className="metric-card"><span className="metric-icon">✓</span><strong>{dashboardMetrics ? `${dashboardMetrics.revision_completion_rate}%` : '—'}</strong><small>revision completion · last {dashboardMetrics?.completion_window_days ?? 7} days</small><div className="progress-track"><span style={{ width: `${dashboardMetrics?.revision_completion_rate ?? 0}%` }} /></div></div>
+        </section>
+        <section className="pattern-analysis-section">
+          <div className="section-heading"><div><p className="eyebrow">WEAK PATTERN ANALYSIS</p><h2>Confidence by pattern</h2></div><span className="result-count">1 to 5 confidence</span></div>
+          <p className="analysis-explanation">Average confidence across recorded reviews. Existing progress without review history uses its latest saved rating.</p>
+          {!dashboardMetrics?.pattern_analysis?.length ? <div className="empty-state">Pattern analysis appears after you review solved problems.</div> : <div className="pattern-analysis-list">{dashboardMetrics.pattern_analysis.map((pattern) => <div className="pattern-analysis-row" key={pattern.id}><div className="pattern-analysis-name"><strong>{pattern.name}</strong><small>{pattern.review_count} rating{pattern.review_count === 1 ? '' : 's'}</small></div><div className="pattern-confidence-track"><span className={pattern.average_confidence <= 2.5 ? 'needs-focus' : ''} style={{ width: `${pattern.average_confidence * 20}%` }} /></div><strong className="pattern-confidence-score">{pattern.average_confidence.toFixed(1)}</strong><span className={`pattern-status ${pattern.average_confidence <= 2.5 ? 'needs-focus' : ''}`}>{pattern.average_confidence <= 2.5 ? 'Needs focus' : 'Steady'}</span></div>)}</div>}
+        </section>
+        <section className="revision-section" id="today-revisions">
           <div className="section-heading"><div><p className="eyebrow">TODAY'S REVISION</p><h2>{todayRevisions.length === 0 ? 'Nothing due today' : `You have ${todayRevisions.length} problem${todayRevisions.length === 1 ? '' : 's'} to revise.`}</h2></div><span className="result-count">{todayRevisions.length} due</span></div>
           {todayRevisions.length === 0 ? <div className="empty-state">You are all caught up. Come back later for the next revision cycle.</div> : <div className="revision-list">{todayRevisions.map((progress) => <article className="revision-card" key={progress.id}><div className="revision-card-header"><span className={`difficulty-dot ${difficultyStyles[progress.problem.difficulty]}`} /><span className="difficulty-label">{progress.problem.difficulty}</span></div><h3>{progress.problem.title}</h3><p className="pattern-label">{progress.problem.pattern?.p_name || 'Uncategorized pattern'}</p><div className="revision-card-footer"><button className="primary-button" onClick={() => setReviewProblem({ ...progress.problem, id: progress.problem.id })} type="button">Start Revision</button></div></article>)}</div>}
         </section>

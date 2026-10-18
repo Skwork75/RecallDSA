@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import Pattern, Problem, UserProblem
+from .models import Pattern, Problem, ReviewEvent, UserProblem
 
 
 class AuthenticationTests(APITestCase):
@@ -95,6 +95,7 @@ class AuthenticationTests(APITestCase):
 		self.assertTrue(user_problem.solved)
 		self.assertEqual(user_problem.confidence, 1)
 		self.assertIsNotNone(user_problem.next_revision)
+		self.assertEqual(ReviewEvent.objects.filter(user=user, problem=problem).count(), 1)
 
 	def test_today_revisions_returns_due_items_for_logged_user(self):
 		user = get_user_model().objects.create_user(username='dana', password='secure-password-123')
@@ -163,3 +164,59 @@ class AuthenticationTests(APITestCase):
 		self.assertEqual(response.status_code, 200)
 		self.assertEqual(len(response.json()), 2)
 		self.assertEqual([item['problem']['title'] for item in response.json()], ['Candy', 'Jump Game'])
+
+	def test_dashboard_returns_personal_review_and_pattern_metrics(self):
+		user = get_user_model().objects.create_user(username='grace', password='secure-password-123')
+		other_user = get_user_model().objects.create_user(username='heidi', password='secure-password-123')
+		strong_pattern = Pattern.objects.create(p_name='Sliding Window')
+		weak_pattern = Pattern.objects.create(p_name='Dynamic Programming')
+		strong_problem = Problem.objects.create(
+			title='Longest Substring',
+			leetcode_id=910003,
+			link='https://leetcode.com/problems/longest-substring-without-repeating-characters/',
+			difficulty='Medium',
+			pattern=strong_pattern,
+		)
+		weak_problem = Problem.objects.create(
+			title='Climbing Stairs',
+			leetcode_id=910070,
+			link='https://leetcode.com/problems/climbing-stairs/',
+			difficulty='Easy',
+			pattern=weak_pattern,
+		)
+		pending_problem = Problem.objects.create(
+			title='House Robber',
+			leetcode_id=910198,
+			link='https://leetcode.com/problems/house-robber/',
+			difficulty='Medium',
+			pattern=weak_pattern,
+		)
+		now = timezone.now()
+		yesterday = now - timedelta(days=1)
+		UserProblem.objects.create(user=user, problem=strong_problem, solved=True, confidence=4, next_revision=now + timedelta(days=5), revision_count=2)
+		UserProblem.objects.create(user=user, problem=weak_problem, solved=True, confidence=1, next_revision=now + timedelta(days=4), revision_count=2)
+		UserProblem.objects.create(user=user, problem=pending_problem, solved=True, confidence=2, next_revision=now - timedelta(days=1), revision_count=1)
+		UserProblem.objects.create(user=other_user, problem=strong_problem, solved=True, confidence=5, next_revision=now - timedelta(days=1), revision_count=1)
+		ReviewEvent.objects.create(user=user, problem=strong_problem, confidence=5, scheduled_for=now - timedelta(days=3), reviewed_at=now)
+		ReviewEvent.objects.create(user=user, problem=strong_problem, confidence=4, reviewed_at=yesterday)
+		ReviewEvent.objects.create(user=user, problem=weak_problem, confidence=1, reviewed_at=now)
+		ReviewEvent.objects.create(user=user, problem=weak_problem, confidence=2, reviewed_at=yesterday)
+		ReviewEvent.objects.create(user=other_user, problem=strong_problem, confidence=1, reviewed_at=now)
+
+		refresh = RefreshToken.for_user(user)
+		self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {refresh.access_token}')
+		response = self.client.get('/api/dashboard/')
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.json()['problems_solved'], 3)
+		self.assertEqual(response.json()['problems_due_today'], 1)
+		self.assertEqual(response.json()['revision_streak'], 2)
+		self.assertEqual(response.json()['revision_completion_rate'], 50)
+		self.assertEqual(response.json()['strongest_pattern']['name'], 'Sliding Window')
+		self.assertEqual(response.json()['strongest_pattern']['average_confidence'], 4.5)
+		self.assertEqual(response.json()['weakest_pattern']['name'], 'Dynamic Programming')
+		self.assertEqual(response.json()['weakest_pattern']['average_confidence'], 1.67)
+
+	def test_dashboard_requires_authentication(self):
+		response = self.client.get('/api/dashboard/')
+		self.assertEqual(response.status_code, 401)

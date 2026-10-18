@@ -10,5 +10,6 @@ urlpatterns = [
     path('auth/profile/', views.profile, name='profile'),
     path('revisions/today/', views.today_revisions, name='today-revisions'),
     path('assessments/weekly/', views.weekly_assessment, name='weekly-assessment'),
+    path('dashboard/', views.dashboard, name='dashboard'),
     path('problems/<int:problem_id>/solve/', views.mark_problem_solved, name='mark-problem-solved'),
 ]
