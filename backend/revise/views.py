@@ -5,8 +5,14 @@ from django.db.models import Avg, Count
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
-from .serializers import ProblemSerializer, RegisterSerializer, UserProblemSerializer, UserSerializer
-from .models import Problem, ReviewEvent, UserProblem
+from .serializers import (
+    ProblemSerializer,
+    RegisterSerializer,
+    UserProblemSerializer,
+    UserSerializer,
+    DSASheetSerializer,
+)
+from .models import Problem, ReviewEvent, UserProblem, DSASheet, DSASheetProblem, Pattern
 from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework import status
@@ -31,11 +37,92 @@ def next_revision_for(confidence, difficulty, revision_count=0):
     spaced_days = max(base_days, 3 + revision_count)
     return timezone.now() + timedelta(days=round(spaced_days * difficulty_bonus))
 
-@api_view(["GET"])
+@api_view(["GET", "POST"])
 def home(request):
-    questions = Problem.objects.select_related('pattern').all()
+    if request.method == 'POST':
+        title = request.data.get('title')
+        leetcode_id = request.data.get('leetcode_id')
+        link = request.data.get('link')
+        difficulty = request.data.get('difficulty')
+        if not title or not leetcode_id or not link or not difficulty:
+            return Response({'detail': 'title, leetcode_id, link, and difficulty are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        pattern_name = request.data.get('pattern') or request.data.get('p_name')
+        pattern = None
+        if pattern_name:
+            pattern, _ = Pattern.objects.get_or_create(p_name=pattern_name)
+
+        problem, created = Problem.objects.get_or_create(
+            leetcode_id=leetcode_id,
+            defaults={
+                'title': title,
+                'link': link,
+                'difficulty': difficulty,
+                'pattern': pattern,
+                'description': request.data.get('description', ''),
+            },
+        )
+        if pattern and problem.pattern is None:
+            problem.pattern = pattern
+            problem.save(update_fields=['pattern'])
+        return Response(ProblemSerializer(problem).data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+    questions = Problem.objects.select_related('pattern').prefetch_related('patterns').all()
     serializer = ProblemSerializer(questions, many=True)
     return Response(serializer.data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def dsasheets(request):
+    sheets = DSASheet.objects.prefetch_related('problems__problem__pattern').all()
+    payload = []
+    for sheet in sheets:
+        payload.append({
+            'id': sheet.id,
+            'name': sheet.name,
+            'description': sheet.description,
+            'problems': [
+                ProblemSerializer(item.problem).data for item in sheet.problems.select_related('problem__pattern').all()
+            ],
+        })
+    return Response(payload)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_dsasheet(request):
+    name = request.data.get('name')
+    if not name:
+        return Response({'detail': 'A sheet name is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    sheet = DSASheet.objects.create(name=name, description=request.data.get('description', ''))
+    return Response(DSASheetSerializer(sheet).data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def add_problem_to_sheet(request, sheet_id):
+    try:
+        sheet = DSASheet.objects.get(id=sheet_id)
+    except DSASheet.DoesNotExist:
+        return Response({'detail': 'Sheet not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    problem_id = request.data.get('problem_id')
+    if not problem_id:
+        return Response({'detail': 'A problem_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        problem = Problem.objects.get(id=problem_id)
+    except Problem.DoesNotExist:
+        return Response({'detail': 'Problem not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    item, created = DSASheetProblem.objects.get_or_create(sheet=sheet, problem=problem)
+    return Response({
+        'created': created,
+        'sheet_id': sheet.id,
+        'problem_id': problem.id,
+    }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
 
 @api_view(['POST'])

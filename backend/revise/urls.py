@@ -3,6 +3,10 @@ from . import views
 
 urlpatterns = [
     path('home/', views.home, name='home'),
+    path('problems/', views.home, name='global-problems'),
+    path('sheets/', views.dsasheets, name='dsasheets'),
+    path('sheets/create/', views.create_dsasheet, name='create-dsasheet'),
+    path('sheets/<int:sheet_id>/add-problem/', views.add_problem_to_sheet, name='add-problem-to-sheet'),
     path('auth/register/', views.register, name='register'),
     path('auth/login/', views.login, name='login'),
     path('auth/logout/', views.logout, name='logout'),
