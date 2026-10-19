@@ -87,11 +87,27 @@ class UserProblem(models.Model):
         return f'{self.user} - {self.problem}'
 
 
-class UserProblemProgress(UserProblem):
+class UserProblemProgress(models.Model):
+    user = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, related_name='sm2_progress')
+    problem = models.ForeignKey(Problem, on_delete=models.CASCADE, related_name='sm2_progress')
+    is_tracked = models.BooleanField(default=True)
+    easiness_factor = models.FloatField(default=2.5)
+    interval = models.PositiveIntegerField(default=0)
+    repetition_number = models.PositiveIntegerField(default=0)
+    next_review_date = models.DateTimeField(null=True, blank=True)
+    confidence_rating = models.PositiveSmallIntegerField(default=0)
+    last_reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(default=timezone.now)
+
     class Meta:
-        proxy = True
-        verbose_name = 'user problem progress'
-        verbose_name_plural = 'user problem progress'
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'problem'], name='unique_sm2_user_problem'),
+        ]
+        ordering = ['next_review_date', '-confidence_rating']
+
+    def __str__(self):
+        return f'{self.user} - {self.problem} ({self.confidence_rating}/5)'
 
 
 class DSASheet(models.Model):

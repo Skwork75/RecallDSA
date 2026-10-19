@@ -12,7 +12,8 @@ from .serializers import (
     UserSerializer,
     DSASheetSerializer,
 )
-from .models import Problem, ReviewEvent, UserProblem, DSASheet, DSASheetProblem, Pattern
+from .models import Problem, ReviewEvent, UserProblem, DSASheet, DSASheetProblem, Pattern, UserProblemProgress
+from .sm2 import calculate_next_review
 from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework import status
@@ -177,6 +178,96 @@ def profile(request):
         'user': UserSerializer(request.user).data,
         'solved_problems': UserProblemSerializer(solved_problems, many=True).data,
     })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def submit_review(request):
+    """Submit an SM-2 review and update the user's per-problem progress."""
+    problem_id = request.data.get('problem_id')
+    confidence = request.data.get('confidence_rating')
+    if confidence is None:
+        confidence = request.data.get('confidence')
+
+    if problem_id is None or confidence is None:
+        return Response({'detail': 'problem_id and confidence_rating are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        confidence = int(confidence)
+    except (TypeError, ValueError):
+        return Response({'detail': 'confidence_rating must be an integer between 1 and 5.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if confidence < 1 or confidence > 5:
+        return Response({'detail': 'confidence_rating must be between 1 and 5.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        problem = Problem.objects.select_related('pattern').get(id=problem_id)
+    except Problem.DoesNotExist:
+        return Response({'detail': 'Problem not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    progress, _ = UserProblemProgress.objects.get_or_create(
+        user=request.user,
+        problem=problem,
+        defaults={'is_tracked': True, 'easiness_factor': 2.5, 'interval': 0, 'repetition_number': 0},
+    )
+
+    current_interval = progress.interval or 0
+    current_rep_number = progress.repetition_number or 0
+    current_ef = progress.easiness_factor or 2.5
+    next_state = calculate_next_review(
+        confidence=confidence,
+        difficulty=problem.difficulty,
+        ef=current_ef,
+        interval=current_interval,
+        rep_number=current_rep_number,
+    )
+
+    progress.easiness_factor = next_state['easiness_factor']
+    progress.interval = next_state['interval']
+    progress.repetition_number = next_state['repetition_number']
+    progress.confidence_rating = confidence
+    progress.last_reviewed_at = timezone.now()
+    progress.next_review_date = timezone.now() + timedelta(days=next_state['interval'])
+    progress.is_tracked = True
+    progress.updated_at = timezone.now()
+    progress.save()
+
+    return Response({
+        'problem_id': problem.id,
+        'confidence_rating': confidence,
+        'next_review_date': progress.next_review_date,
+        'interval': progress.interval,
+        'repetition_number': progress.repetition_number,
+        'easiness_factor': progress.easiness_factor,
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def due_today(request):
+    today = timezone.now().date()
+    items = UserProblemProgress.objects.filter(
+        user=request.user,
+        is_tracked=True,
+        next_review_date__date__lte=today,
+    ).select_related('problem__pattern').order_by('next_review_date')
+
+    payload = []
+    for item in items:
+        overdue_days = max(0, (today - item.next_review_date.date()).days) if item.next_review_date else 0
+        payload.append({
+            'id': item.id,
+            'problem': ProblemSerializer(item.problem).data,
+            'confidence_rating': item.confidence_rating,
+            'interval': item.interval,
+            'repetition_number': item.repetition_number,
+            'easiness_factor': item.easiness_factor,
+            'next_review_date': item.next_review_date,
+            'overdue_days': overdue_days,
+        })
+
+    payload.sort(key=lambda item: (-int(item['overdue_days']), item['next_review_date'] or timezone.now()))
+    return Response(payload)
 
 
 @api_view(['GET'])

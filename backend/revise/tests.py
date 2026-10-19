@@ -3,7 +3,8 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import Pattern, Problem, ReviewEvent, UserProblem
+from .models import Pattern, Problem, ReviewEvent, UserProblem, UserProblemProgress
+from .sm2 import calculate_next_review
 
 
 class AuthenticationTests(APITestCase):
@@ -220,3 +221,45 @@ class AuthenticationTests(APITestCase):
 	def test_dashboard_requires_authentication(self):
 		response = self.client.get('/api/dashboard/')
 		self.assertEqual(response.status_code, 401)
+
+
+class SM2CalculatorTests(APITestCase):
+	def test_first_review_uses_initial_interval(self):
+		result = calculate_next_review(confidence=4, difficulty='Easy', ef=2.5, interval=0, rep_number=0)
+		self.assertEqual(result['interval'], 1)
+		self.assertEqual(result['repetition_number'], 1)
+		self.assertGreaterEqual(result['easiness_factor'], 1.3)
+
+	def test_failed_review_resets_repetition_and_interval(self):
+		result = calculate_next_review(confidence=2, difficulty='Medium', ef=2.5, interval=6, rep_number=2)
+		self.assertEqual(result['interval'], 1)
+		self.assertEqual(result['repetition_number'], 0)
+		self.assertGreaterEqual(result['easiness_factor'], 1.3)
+
+	def test_many_consecutive_successes_grow_interval(self):
+		result_1 = calculate_next_review(confidence=5, difficulty='Easy', ef=2.5, interval=0, rep_number=0)
+		result_2 = calculate_next_review(confidence=5, difficulty='Easy', ef=result_1['easiness_factor'], interval=result_1['interval'], rep_number=result_1['repetition_number'])
+		result_3 = calculate_next_review(confidence=5, difficulty='Easy', ef=result_2['easiness_factor'], interval=result_2['interval'], rep_number=result_2['repetition_number'])
+		self.assertEqual(result_1['interval'], 1)
+		self.assertGreater(result_2['interval'], result_1['interval'])
+		self.assertGreater(result_3['interval'], result_2['interval'])
+		self.assertEqual(result_3['repetition_number'], 3)
+
+	def test_submit_review_updates_user_progress(self):
+		user = get_user_model().objects.create_user(username='sm2-user', password='secure-password-123')
+		problem = Problem.objects.create(
+			title='Two Sum',
+			leetcode_id=1,
+			link='https://leetcode.com/problems/two-sum/',
+			difficulty='Easy',
+			pattern=Pattern.objects.create(p_name='Hash Map'),
+		)
+		self.client.force_authenticate(user=user)
+		response = self.client.post('/api/revisions/submit-review/', {
+			'problem_id': problem.id,
+			'confidence_rating': 5,
+		}, format='json')
+		self.assertEqual(response.status_code, 200)
+		self.assertIn('next_review_date', response.json())
+		self.assertTrue(UserProblemProgress.objects.filter(user=user, problem=problem).exists())
+		self.assertEqual(UserProblemProgress.objects.get(user=user, problem=problem).confidence_rating, 5)

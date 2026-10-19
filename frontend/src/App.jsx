@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import toast, { Toaster } from 'react-hot-toast'
 import { useAuth } from './context/useAuth.js'
 
 const difficultyStyles = { Easy: 'easy', Medium: 'medium', Hard: 'hard' }
@@ -21,15 +22,22 @@ function ProfilePanel({ profile, onClose }) {
   </div>
 }
 
-function ReviewPrompt({ problem, onClose, onSubmit, submitting }) {
-  const [confidence, setConfidence] = useState(null)
+function ConfidenceModal({ problem, onClose, onSubmit, submitting }) {
+  const [confidence, setConfidence] = useState(3)
+  const labels = {
+    1: 'Forgot',
+    2: 'Barely',
+    3: 'Somewhat',
+    4: 'Mostly',
+    5: 'Instant',
+  }
 
   return (
     <div className="review-modal-backdrop" onClick={onClose} role="presentation">
       <div className="review-modal" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="Recall rating">
         <p className="eyebrow">RECALL CHECK</p>
-        <h2>After a user marks a problem solved or revised, ask how well they remember the approach.</h2>
-        <p className="review-modal-subtitle">This rating becomes the input for your revision scheduling system.</p>
+        <h2>How well do you remember this problem?</h2>
+        <p className="review-modal-subtitle">Rate this revision so your spaced repetition schedule can update accurately.</p>
         <div className="rating-row" aria-label="Rate your recall confidence">
           {[1, 2, 3, 4, 5].map((value) => (
             <button
@@ -37,17 +45,23 @@ function ReviewPrompt({ problem, onClose, onSubmit, submitting }) {
               className={`rating-option ${confidence === value ? 'selected' : ''}`}
               onClick={() => setConfidence(value)}
               type="button"
+              aria-label={`Rate ${value} stars: ${labels[value]}`}
             >
-              {value}
+              ★
             </button>
           ))}
         </div>
         <div className="review-meta">
           <span>{problem?.title}</span>
-          <strong>{confidence ? `Confidence: ${confidence}/5` : 'Select your rating'}</strong>
+          <strong>{confidence ? `${labels[confidence]} · ${confidence}/5` : 'Select your rating'}</strong>
         </div>
-        <button className="primary-button review-submit" disabled={!confidence || submitting} onClick={() => onSubmit(confidence)} type="button">
-          {submitting ? 'Saving review...' : 'Save recall rating'}
+        <div className="review-rating-labels" aria-live="polite">
+          {Object.entries(labels).map(([value, label]) => (
+            <span key={value} className={Number(value) === confidence ? 'active' : ''}>{label}</span>
+          ))}
+        </div>
+        <button className="primary-button review-submit" disabled={submitting} onClick={() => onSubmit(confidence)} type="button">
+          {submitting ? 'Saving review...' : 'Submit rating'}
         </button>
       </div>
     </div>
@@ -164,7 +178,7 @@ function Dashboard({ theme, onToggle }) {
   useEffect(() => {
     if (!user) return
 
-    authenticatedRequest('/api/revisions/today/')
+    authenticatedRequest('/api/revisions/due-today/')
       .then(setTodayRevisions)
       .catch(() => setTodayRevisions([]))
 
@@ -217,14 +231,17 @@ function Dashboard({ theme, onToggle }) {
   const markSolved = async (problemId, confidence = 3) => {
     setSolvingId(problemId)
     try {
-      await authenticatedRequest(`/api/problems/${problemId}/solve/`, {
+      const response = await authenticatedRequest('/api/revisions/submit-review/', {
         method: 'POST',
-        body: JSON.stringify({ confidence }),
+        body: JSON.stringify({ problem_id: problemId, confidence_rating: confidence }),
       })
+      const nextInterval = Number(response?.interval ?? 0)
+      const displayDays = Math.max(1, nextInterval || Math.ceil((new Date(response?.next_review_date).getTime() - Date.now()) / 86400000))
+      toast.success(`Next review in ${displayDays} ${displayDays === 1 ? 'day' : 'days'}`)
       setSolvedIds((current) => new Set([...current, problemId]))
       const [updatedProfile, nextDue, updatedAssessment, updatedMetrics] = await Promise.all([
         authenticatedRequest('/api/auth/profile/'),
-        authenticatedRequest('/api/revisions/today/'),
+        authenticatedRequest('/api/revisions/due-today/'),
         authenticatedRequest('/api/assessments/weekly/'),
         authenticatedRequest('/api/dashboard/'),
       ])
@@ -234,6 +251,7 @@ function Dashboard({ theme, onToggle }) {
       setDashboardMetrics(updatedMetrics)
       setReviewProblem(null)
     } catch (solveError) {
+      toast.error(solveError.message)
       setError(solveError.message)
     } finally {
       setSolvingId(null)
@@ -322,7 +340,7 @@ function Dashboard({ theme, onToggle }) {
           {!loading && !error && filteredQuestions.length > 0 && <div className="problem-grid">{filteredQuestions.map((question) => { const solved = solvedIds.has(question.id); return <article className={`problem-card ${solved ? 'solved-card' : ''}`} key={question.id ?? question.q_id}><div className="card-topline"><span className={`difficulty-dot ${difficultyStyles[question.difficulty]}`} /><span className="difficulty-label">{question.difficulty}</span><span className="question-number">#{String(question.leetcode_id).padStart(4, '0')}</span></div><h3>{question.title}</h3><p className="pattern-label">{question.pattern?.p_name || 'Uncategorized pattern'}</p><div className="card-footer"><button className={`solve-button ${solved ? 'is-solved' : ''}`} disabled={solvingId === question.id} onClick={() => setReviewProblem(question)} type="button">{solved ? 'Review' : solvingId === question.id ? 'Saving...' : 'Mark as solved'}</button>{question.link && <a href={question.link} rel="noreferrer" target="_blank">Open problem <span>↗</span></a>}</div></article> })}</div>}
         </section>
       </div>
-      {reviewProblem && <ReviewPrompt problem={reviewProblem} onClose={() => setReviewProblem(null)} onSubmit={(confidence) => markSolved(reviewProblem.id, confidence)} submitting={solvingId === reviewProblem.id} />}
+      {reviewProblem && <ConfidenceModal problem={reviewProblem} onClose={() => setReviewProblem(null)} onSubmit={(confidence) => markSolved(reviewProblem.id, confidence)} submitting={solvingId === reviewProblem.id} />}
     </main>
   )
 }
@@ -339,7 +357,12 @@ function App() {
   const toggleTheme = () => setTheme((currentTheme) => currentTheme === 'dark' ? 'light' : 'dark')
 
   if (loading) return <div className="loading-screen"><Logo /><span>Preparing your workspace...</span></div>
-  return user ? <Dashboard onToggle={toggleTheme} theme={theme} /> : <AuthScreen onToggle={toggleTheme} theme={theme} />
+  return (
+    <>
+      <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
+      {user ? <Dashboard onToggle={toggleTheme} theme={theme} /> : <AuthScreen onToggle={toggleTheme} theme={theme} />}
+    </>
+  )
 }
 
 export default App
