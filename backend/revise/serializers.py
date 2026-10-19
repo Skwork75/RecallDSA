@@ -1,4 +1,4 @@
-from .models import Pattern, Problem, Solved, UserProblem
+from .models import Pattern, Problem, Solved, UserProblem, GlobalProblem, DSASheet, DSASheetProblem
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
@@ -21,6 +21,7 @@ class RegisterSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         return User.objects.create_user(**validated_data)
 
+
 class SolvedSerializer(serializers.ModelSerializer):
     class Meta:
         model = Solved
@@ -35,10 +36,19 @@ class PatternSerializer(serializers.ModelSerializer):
 
 class ProblemSerializer(serializers.ModelSerializer):
     pattern = PatternSerializer(read_only=True)
+    patterns = PatternSerializer(read_only=True, many=True)
 
     class Meta:
         model = Problem
-        fields = ['id', 'title', 'leetcode_id', 'link', 'difficulty', 'pattern']
+        fields = ['id', 'slug', 'title', 'leetcode_id', 'link', 'difficulty', 'pattern', 'patterns', 'description', 'created_at']
+
+
+class GlobalProblemSerializer(serializers.ModelSerializer):
+    pattern = PatternSerializer(read_only=True)
+
+    class Meta:
+        model = GlobalProblem
+        fields = ['id', 'slug', 'title', 'leetcode_id', 'link', 'difficulty', 'pattern', 'description']
 
 
 class UserProblemSerializer(serializers.ModelSerializer):
@@ -46,4 +56,18 @@ class UserProblemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserProblem
-        fields = ['id', 'problem', 'solved', 'confidence', 'last_reviewed', 'next_revision', 'revision_count']
+        fields = ['id', 'problem', 'solved', 'confidence', 'last_reviewed', 'next_revision', 'revision_count', 'interval', 'source']
+
+
+class DSASheetSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DSASheet
+        fields = ['id', 'name', 'description', 'created_at']
+
+
+class DSASheetProblemSerializer(serializers.ModelSerializer):
+    problem = ProblemSerializer(read_only=True)
+
+    class Meta:
+        model = DSASheetProblem
+        fields = ['id', 'sheet', 'problem']

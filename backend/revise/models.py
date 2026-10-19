@@ -1,14 +1,18 @@
 from django.db import models
 from django.contrib.auth import get_user_model
 from django.utils import timezone
+from django.utils.text import slugify
+
 
 class Solved(models.Model):
     q_id = models.IntegerField()
-    q_name = models.CharField(default = str(q_id))
+    q_name = models.CharField(default=str(q_id))
     q_link = models.TextField()
 
     def __str__(self):
         return self.q_name
+
+
 class Pattern(models.Model):
     p_name = models.CharField(max_length=100)
 
@@ -24,23 +28,55 @@ class Problem(models.Model):
     ]
 
     title = models.CharField(max_length=255)
+    slug = models.SlugField(max_length=255, unique=True, blank=True)
     leetcode_id = models.PositiveIntegerField(unique=True)
     link = models.URLField()
     difficulty = models.CharField(max_length=10, choices=DIFFICULTY_CHOICES)
-    pattern = models.ForeignKey(Pattern, on_delete=models.PROTECT, related_name='problems')
+    pattern = models.ForeignKey(Pattern, on_delete=models.PROTECT, related_name='problems', null=True, blank=True)
+    patterns = models.ManyToManyField(Pattern, related_name='problem_memberships', blank=True)
+    description = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(default=timezone.now)
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            base_slug = slugify(self.title)
+            if not base_slug:
+                base_slug = f'problem-{self.leetcode_id}'
+            unique_slug = base_slug
+            counter = 1
+            while Problem.objects.filter(slug=unique_slug).exclude(pk=self.pk).exists():
+                unique_slug = f'{base_slug}-{counter}'
+                counter += 1
+            self.slug = unique_slug
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.title
 
 
+class GlobalProblem(Problem):
+    class Meta:
+        proxy = True
+        verbose_name = 'global problem'
+        verbose_name_plural = 'global problems'
+
+
 class UserProblem(models.Model):
+    SOURCE_CHOICES = [
+        ('manual', 'manual'),
+        ('import', 'import'),
+    ]
+
     user = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, related_name='problem_progress')
     problem = models.ForeignKey(Problem, on_delete=models.CASCADE, related_name='user_progress')
     solved = models.BooleanField(default=False)
     confidence = models.PositiveSmallIntegerField(null=True, blank=True)
+    interval = models.PositiveIntegerField(default=0)
     last_reviewed = models.DateTimeField(null=True, blank=True)
     next_revision = models.DateTimeField(null=True, blank=True)
     revision_count = models.PositiveIntegerField(default=0)
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='manual')
+    created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         constraints = [
@@ -49,6 +85,36 @@ class UserProblem(models.Model):
 
     def __str__(self):
         return f'{self.user} - {self.problem}'
+
+
+class UserProblemProgress(UserProblem):
+    class Meta:
+        proxy = True
+        verbose_name = 'user problem progress'
+        verbose_name_plural = 'user problem progress'
+
+
+class DSASheet(models.Model):
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(default=timezone.now)
+
+    def __str__(self):
+        return self.name
+
+
+class DSASheetProblem(models.Model):
+    sheet = models.ForeignKey(DSASheet, on_delete=models.CASCADE, related_name='problems')
+    problem = models.ForeignKey(Problem, on_delete=models.CASCADE, related_name='sheets')
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['sheet', 'problem'], name='unique_sheet_problem'),
+        ]
+
+    def __str__(self):
+        return f'{self.sheet} - {self.problem}'
 
 
 class ReviewEvent(models.Model):
