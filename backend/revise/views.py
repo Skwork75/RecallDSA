@@ -111,17 +111,28 @@ def weekly_assessment(request):
     problems = UserProblem.objects.filter(
         user=request.user,
         solved=True,
-    ).select_related('problem__pattern').order_by('confidence', 'next_revision')
+    ).select_related('problem__pattern').order_by('next_revision', 'confidence')
 
     due_or_weak = [
         item for item in problems
-        if item.next_revision is None or item.next_revision <= now or (item.confidence is not None and item.confidence <= 2)
+        if item.next_revision is None
+        or item.next_revision <= now
+        or (item.confidence is not None and item.confidence <= 2)
     ]
 
     if not due_or_weak:
         due_or_weak = list(problems[:5])
 
-    return Response(UserProblemSerializer(due_or_weak[:5], many=True).data)
+    selected = sorted(
+        due_or_weak,
+        key=lambda item: (
+            0 if item.next_revision is not None and item.next_revision <= now else 1,
+            item.confidence if item.confidence is not None else 5,
+            item.next_revision or now,
+        ),
+    )[:5]
+
+    return Response(UserProblemSerializer(selected, many=True).data)
 
 
 @api_view(['GET'])
