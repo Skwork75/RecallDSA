@@ -60,14 +60,49 @@ class UserProblemSerializer(serializers.ModelSerializer):
 
 
 class DSASheetSerializer(serializers.ModelSerializer):
+    tracked_count = serializers.SerializerMethodField()
+    total_problems = serializers.SerializerMethodField()
+    progress = serializers.SerializerMethodField()
+
     class Meta:
         model = DSASheet
-        fields = ['id', 'name', 'description', 'created_at']
+        fields = [
+            'id', 'title', 'slug', 'description', 'author', 'total_problems',
+            'cover_image_url', 'is_featured', 'tracked_count', 'progress', 'created_at',
+        ]
+
+    def get_total_problems(self, sheet):
+        return sheet.problems.count()
+
+    def get_tracked_count(self, sheet):
+        user = self.context.get('request').user if self.context.get('request') else None
+        if not user or not user.is_authenticated:
+            return 0
+        return sheet.problems.filter(
+            problem__sm2_progress__user=user,
+            problem__sm2_progress__is_tracked=True,
+        ).count()
+
+    def get_progress(self, sheet):
+        total = self.get_total_problems(sheet)
+        tracked = self.get_tracked_count(sheet)
+        return {'tracked': tracked, 'total': total}
 
 
 class DSASheetProblemSerializer(serializers.ModelSerializer):
     problem = ProblemSerializer(read_only=True)
+    is_tracked_by_user = serializers.SerializerMethodField()
 
     class Meta:
         model = DSASheetProblem
-        fields = ['id', 'sheet', 'problem']
+        fields = ['id', 'sheet', 'problem', 'order', 'category', 'is_tracked_by_user']
+
+    def get_is_tracked_by_user(self, sheet_problem):
+        user = self.context.get('request').user if self.context.get('request') else None
+        if not user or not user.is_authenticated:
+            return False
+        return User.objects.filter(
+            pk=user.pk,
+            sm2_progress__problem=sheet_problem.problem,
+            sm2_progress__is_tracked=True,
+        ).exists()

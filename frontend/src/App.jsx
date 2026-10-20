@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import toast, { Toaster } from 'react-hot-toast'
 import { useAuth } from './context/useAuth.js'
+import { SheetDetail, SheetExplorer } from './SheetPages.jsx'
 
 const difficultyStyles = { Easy: 'easy', Medium: 'medium', Hard: 'hard' }
 
@@ -270,6 +271,7 @@ function Dashboard({ theme, onToggle }) {
       <header className="topbar"><Logo /><div className="topbar-actions"><ThemeToggle onToggle={onToggle} theme={theme} /><button className="user-chip" onClick={() => setProfileOpen((open) => !open)} type="button" aria-expanded={profileOpen}><span>{user?.username?.charAt(0).toUpperCase()}</span><strong>{user?.username}</strong></button><button className="logout-button" onClick={logout} type="button">Sign out</button>{profileOpen && profile && <ProfilePanel onClose={() => setProfileOpen(false)} profile={profile} />}</div></header>
       <div className="dashboard-content">
         <section className="welcome-row"><div><p className="eyebrow">YOUR NEXT REP</p><h1>Ready when you are, {firstName}.</h1><p className="subheading">A small, steady review keeps your instincts sharp.</p></div><div className="streak-badge"><span>✦</span><div><strong>{profile?.solved_problems?.length ? `${Math.min(profile.solved_problems.length, 7)} day` : '0 day'}</strong><small>current streak</small></div></div></section>
+        {dashboardMetrics?.problems_tracked === 0 && <a className="dashboard-sheets-cta" href="/sheets"><span><small>NEW TO RECALLDSA?</small><strong>Start with a curated DSA sheet</strong><em>Explore interview sheets and build your revision plan.</em></span><b>Explore Sheets <span>↗</span></b></a>}
         <section className="metrics-row" aria-label="Your revision dashboard">
           <div className="metric-card metric-featured"><span className="metric-icon">◎</span><strong>{dashboardMetrics?.problems_solved ?? '—'}</strong><small>problems solved</small><div className="metric-line" /></div>
           <div className="metric-card"><span className="metric-icon">◌</span><strong>{dashboardMetrics?.problems_due_today ?? '—'}</strong><small>problems due today</small><a href="#today-revisions">Start a review <span>↗</span></a></div>
@@ -357,10 +359,17 @@ function App() {
   const toggleTheme = () => setTheme((currentTheme) => currentTheme === 'dark' ? 'light' : 'dark')
 
   if (loading) return <div className="loading-screen"><Logo /><span>Preparing your workspace...</span></div>
+  const path = window.location.pathname.replace(/\/+$/, '') || '/'
   return (
     <>
       <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
-      {user ? <Dashboard onToggle={toggleTheme} theme={theme} /> : <AuthScreen onToggle={toggleTheme} theme={theme} />}
+      {user
+        ? path === '/sheets'
+          ? <SheetExplorer onToggle={toggleTheme} theme={theme} />
+          : path.startsWith('/sheets/')
+            ? <SheetDetail onToggle={toggleTheme} slug={decodeURIComponent(path.slice('/sheets/'.length))} theme={theme} />
+            : <Dashboard onToggle={toggleTheme} theme={theme} />
+        : <AuthScreen onToggle={toggleTheme} theme={theme} />}
     </>
   )
 }

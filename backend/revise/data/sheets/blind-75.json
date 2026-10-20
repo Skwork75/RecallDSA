@@ -1,0 +1,55 @@
+{
+  "title": "Blind 75",
+  "slug": "blind-75",
+  "description": "A focused collection of essential coding interview problems.",
+  "author": "Blind",
+  "cover_image_url": "",
+  "is_featured": true,
+  "problems": [
+    {
+      "order": 1,
+      "title": "Two Sum",
+      "leetcode_id": 1,
+      "link": "https://leetcode.com/problems/two-sum/",
+      "difficulty": "Easy",
+      "category": "Arrays & Hashing",
+      "pattern": "Hash Map"
+    },
+    {
+      "order": 2,
+      "title": "Best Time to Buy and Sell Stock",
+      "leetcode_id": 121,
+      "link": "https://leetcode.com/problems/best-time-to-buy-and-sell-stock/",
+      "difficulty": "Easy",
+      "category": "Sliding Window",
+      "pattern": "Sliding Window"
+    },
+    {
+      "order": 3,
+      "title": "Contains Duplicate",
+      "leetcode_id": 217,
+      "link": "https://leetcode.com/problems/contains-duplicate/",
+      "difficulty": "Easy",
+      "category": "Arrays & Hashing",
+      "pattern": "Hash Set"
+    },
+    {
+      "order": 4,
+      "title": "Product of Array Except Self",
+      "leetcode_id": 238,
+      "link": "https://leetcode.com/problems/product-of-array-except-self/",
+      "difficulty": "Medium",
+      "category": "Arrays & Hashing",
+      "pattern": "Prefix Sum"
+    },
+    {
+      "order": 5,
+      "title": "Maximum Subarray",
+      "leetcode_id": 53,
+      "link": "https://leetcode.com/problems/maximum-subarray/",
+      "difficulty": "Medium",
+      "category": "Dynamic Programming",
+      "pattern": "Kadane's Algorithm"
+    }
+  ]
+}

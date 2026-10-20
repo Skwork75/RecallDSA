@@ -1,9 +1,12 @@
 from datetime import timedelta
+from io import StringIO
+from pathlib import Path
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import Pattern, Problem, ReviewEvent, UserProblem, UserProblemProgress
+from .models import DSASheet, DSASheetProblem, Pattern, Problem, ReviewEvent, UserProblem, UserProblemProgress
 from .sm2 import calculate_next_review
 
 
@@ -263,3 +266,120 @@ class SM2CalculatorTests(APITestCase):
 		self.assertIn('next_review_date', response.json())
 		self.assertTrue(UserProblemProgress.objects.filter(user=user, problem=problem).exists())
 		self.assertEqual(UserProblemProgress.objects.get(user=user, problem=problem).confidence_rating, 5)
+
+
+class CuratedSheetTests(APITestCase):
+	def setUp(self):
+		self.user = get_user_model().objects.create_user(username='sheet-user', password='secure-password-123')
+		self.client.force_authenticate(user=self.user)
+		self.sheet = DSASheet.objects.create(
+			title='Blind 75',
+			slug='blind-75-test',
+			description='A focused list',
+			is_featured=True,
+		)
+		self.first_problem = Problem.objects.create(
+			title='Two Sum',
+			leetcode_id=801,
+			link='https://leetcode.com/problems/two-sum/',
+			difficulty='Easy',
+			pattern=Pattern.objects.create(p_name='Hash Map'),
+		)
+		self.second_problem = Problem.objects.create(
+			title='Maximum Subarray',
+			leetcode_id=802,
+			link='https://leetcode.com/problems/maximum-subarray/',
+			difficulty='Medium',
+			pattern=Pattern.objects.create(p_name='Dynamic Programming'),
+		)
+		DSASheetProblem.objects.create(
+			sheet=self.sheet,
+			problem=self.first_problem,
+			order=1,
+			category='Arrays & Hashing',
+		)
+		DSASheetProblem.objects.create(
+			sheet=self.sheet,
+			problem=self.second_problem,
+			order=2,
+			category='Dynamic Programming',
+		)
+
+	def test_sheet_list_and_detail_include_per_user_progress(self):
+		list_response = self.client.get('/api/sheets/')
+		self.assertEqual(list_response.status_code, 200)
+		sheet_summary = next(sheet for sheet in list_response.json() if sheet['slug'] == 'blind-75-test')
+		self.assertEqual(sheet_summary['title'], 'Blind 75')
+		self.assertEqual(sheet_summary['progress'], {'tracked': 0, 'total': 2})
+
+		detail_response = self.client.get('/api/sheets/blind-75-test/')
+		self.assertEqual(detail_response.status_code, 200)
+		self.assertEqual(len(detail_response.json()['categories']), 2)
+		problem = detail_response.json()['categories'][0]['problems'][0]
+		self.assertFalse(problem['is_tracked_by_user'])
+		self.assertEqual(problem['order'], 1)
+
+	def test_track_all_adds_sm2_progress_once(self):
+		first_response = self.client.post('/api/sheets/blind-75-test/track-all/', {}, format='json')
+		second_response = self.client.post('/api/sheets/blind-75-test/track-all/', {}, format='json')
+
+		self.assertEqual(first_response.status_code, 200)
+		self.assertEqual(first_response.json()['added_count'], 2)
+		self.assertEqual(second_response.json()['added_count'], 0)
+		self.assertEqual(UserProblemProgress.objects.filter(user=self.user, is_tracked=True).count(), 2)
+
+	def test_track_selected_rejects_ids_not_in_sheet(self):
+		response = self.client.post(
+			'/api/sheets/blind-75-test/track-selected/',
+			{'problem_ids': [self.first_problem.id, 999999]},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, 400)
+		self.assertFalse(UserProblemProgress.objects.filter(user=self.user).exists())
+
+	def test_track_selected_adds_only_requested_problem(self):
+		response = self.client.post(
+			'/api/sheets/blind-75-test/track-selected/',
+			{'problem_ids': [self.second_problem.id]},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.json()['added_count'], 1)
+		self.assertTrue(UserProblemProgress.objects.filter(user=self.user, problem=self.second_problem, is_tracked=True).exists())
+		detail = self.client.get('/api/sheets/blind-75-test/').json()
+		tracked_problem = next(
+			problem
+			for category in detail['categories']
+			for problem in category['problems']
+			if problem['problem']['id'] == self.second_problem.id
+		)
+		self.assertTrue(tracked_problem['is_tracked_by_user'])
+
+	def test_track_selected_reactivates_previously_untracked_progress(self):
+		UserProblemProgress.objects.create(
+			user=self.user,
+			problem=self.first_problem,
+			is_tracked=False,
+		)
+
+		response = self.client.post(
+			'/api/sheets/blind-75-test/track-selected/',
+			{'problem_ids': [self.first_problem.id]},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.json()['added_count'], 1)
+		self.assertTrue(UserProblemProgress.objects.get(user=self.user, problem=self.first_problem).is_tracked)
+
+	def test_seed_command_is_repeatable_with_local_sample_json(self):
+		fixture = Path(__file__).resolve().parent / 'data' / 'sheets' / 'blind-75.json'
+		call_command('seed_sheets', path=fixture, stdout=StringIO())
+		call_command('seed_sheets', path=fixture, stdout=StringIO())
+
+		sheet = DSASheet.objects.get(slug='blind-75')
+		self.assertEqual(sheet.problems.count(), 5)
+		self.assertEqual(sheet.total_problems, 5)
+		self.assertTrue(sheet.is_featured)

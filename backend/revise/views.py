@@ -11,6 +11,7 @@ from .serializers import (
     UserProblemSerializer,
     UserSerializer,
     DSASheetSerializer,
+    DSASheetProblemSerializer,
 )
 from .models import Problem, ReviewEvent, UserProblem, DSASheet, DSASheetProblem, Pattern, UserProblemProgress
 from .sm2 import calculate_next_review
@@ -76,18 +77,110 @@ def home(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def dsasheets(request):
-    sheets = DSASheet.objects.prefetch_related('problems__problem__pattern').all()
-    payload = []
-    for sheet in sheets:
-        payload.append({
-            'id': sheet.id,
-            'name': sheet.name,
-            'description': sheet.description,
-            'problems': [
-                ProblemSerializer(item.problem).data for item in sheet.problems.select_related('problem__pattern').all()
-            ],
-        })
-    return Response(payload)
+    sheets = DSASheet.objects.prefetch_related('problems__problem__sm2_progress').all()
+    if request.query_params.get('featured', '').lower() in ('1', 'true'):
+        sheets = sheets.filter(is_featured=True)
+    return Response(DSASheetSerializer(sheets, many=True, context={'request': request}).data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def dsasheet_detail(request, slug):
+    try:
+        sheet = DSASheet.objects.prefetch_related(
+            'problems__problem__pattern',
+            'problems__problem__patterns',
+            'problems__problem__sm2_progress',
+        ).get(slug=slug)
+    except DSASheet.DoesNotExist:
+        return Response({'detail': 'Sheet not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    serialized_problems = DSASheetProblemSerializer(
+        sheet.problems.select_related('problem__pattern').prefetch_related('problem__patterns'),
+        many=True,
+        context={'request': request},
+    ).data
+    grouped = {}
+    for item in serialized_problems:
+        pattern = item['problem'].get('pattern') or {}
+        category = item['category'] or pattern.get('p_name') or 'Uncategorized'
+        grouped.setdefault(category, []).append(item)
+
+    return Response({
+        **DSASheetSerializer(sheet, context={'request': request}).data,
+        'categories': [
+            {'name': category, 'problems': problems}
+            for category, problems in grouped.items()
+        ],
+    })
+
+
+def _track_sheet_problems(user, problems):
+    added = 0
+    for problem in problems:
+        _, was_created = UserProblemProgress.objects.get_or_create(
+            user=user,
+            problem=problem,
+            defaults={
+                'is_tracked': True,
+                'easiness_factor': 2.5,
+                'interval': 0,
+                'repetition_number': 0,
+            },
+        )
+        if was_created:
+            added += 1
+        else:
+            added += UserProblemProgress.objects.filter(user=user, problem=problem, is_tracked=False).update(
+                is_tracked=True,
+                updated_at=timezone.now(),
+            )
+    return added
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def track_all_sheet_problems(request, slug):
+    try:
+        sheet = DSASheet.objects.get(slug=slug)
+    except DSASheet.DoesNotExist:
+        return Response({'detail': 'Sheet not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    problems = Problem.objects.filter(sheets__sheet=sheet).distinct()
+    added_count = _track_sheet_problems(request.user, problems)
+    return Response({
+        'added_count': added_count,
+        'already_tracked_count': problems.count() - added_count,
+        'total_count': problems.count(),
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def track_selected_sheet_problems(request, slug):
+    try:
+        sheet = DSASheet.objects.get(slug=slug)
+    except DSASheet.DoesNotExist:
+        return Response({'detail': 'Sheet not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    problem_ids = request.data.get('problem_ids')
+    if not isinstance(problem_ids, list) or not problem_ids:
+        return Response({'detail': 'problem_ids must be a non-empty list.'}, status=status.HTTP_400_BAD_REQUEST)
+    if any(not isinstance(problem_id, int) or isinstance(problem_id, bool) for problem_id in problem_ids):
+        return Response({'detail': 'problem_ids must contain integer IDs.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    problems = Problem.objects.filter(sheets__sheet=sheet, id__in=set(problem_ids)).distinct()
+    if problems.count() != len(set(problem_ids)):
+        return Response({'detail': 'One or more problems are not part of this sheet.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    added_count = _track_sheet_problems(request.user, problems)
+    return Response({
+        'added_count': added_count,
+        'already_tracked_count': problems.count() - added_count,
+        'total_count': problems.count(),
+    })
 
 
 @api_view(['POST'])
@@ -97,7 +190,7 @@ def create_dsasheet(request):
     if not name:
         return Response({'detail': 'A sheet name is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    sheet = DSASheet.objects.create(name=name, description=request.data.get('description', ''))
+    sheet = DSASheet.objects.create(title=name, description=request.data.get('description', ''))
     return Response(DSASheetSerializer(sheet).data, status=status.HTTP_201_CREATED)
 
 
@@ -119,6 +212,9 @@ def add_problem_to_sheet(request, sheet_id):
         return Response({'detail': 'Problem not found.'}, status=status.HTTP_404_NOT_FOUND)
 
     item, created = DSASheetProblem.objects.get_or_create(sheet=sheet, problem=problem)
+    if created:
+        sheet.total_problems = sheet.problems.count()
+        sheet.save(update_fields=['total_problems'])
     return Response({
         'created': created,
         'sheet_id': sheet.id,
@@ -384,6 +480,7 @@ def dashboard(request):
 
     return Response({
         'problems_solved': progress_items.count(),
+        'problems_tracked': UserProblemProgress.objects.filter(user=user, is_tracked=True).count(),
         'problems_due_today': due_query.count(),
         'revision_streak': streak,
         'strongest_pattern': strongest_pattern,

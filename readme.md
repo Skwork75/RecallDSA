@@ -44,6 +44,7 @@ RecallDSA introduces a structured retention system built around four core princi
 
 ### Core Features
 - User authentication and profile management
+- Curated DSA sheet browsing and bulk addition to the SM-2 revision queue
 - Problem tracking with pattern-based tagging
 - Personalized daily revision queue
 - Spaced repetition scheduling engine
@@ -56,6 +57,27 @@ RecallDSA introduces a structured retention system built around four core princi
 - Peer skill matching for collaborative practice
 - AI-powered hint system using LLMs
 - Mobile-responsive Progressive Web App (PWA)
+
+### Curated DSA Sheets
+
+The backend imports sheet definitions from local JSON files. Run the included five-problem Blind 75 example with:
+
+```powershell
+cd backend
+python manage.py migrate
+python manage.py seed_sheets
+```
+
+Add additional `*.json` files under `backend/revise/data/sheets/`, or pass a JSON file/directory with `python manage.py seed_sheets --path <path>`. Each file contains a sheet object with `title`, optional sheet metadata, and a `problems` array. Problem entries require `title`, `leetcode_id`, `link`, and `difficulty`; `category` is used to group entries in the sheet detail view and as the default pattern when no separate `pattern` is given. The included Blind 75 data is a five-problem sample demonstrating this format, not the full sheet.
+
+Authenticated API endpoints:
+
+- `GET /api/sheets/` — list sheets and per-user tracked counts (`?featured=true` filters featured sheets)
+- `GET /api/sheets/{slug}/` — sheet detail and problem tracking state grouped by category
+- `POST /api/sheets/{slug}/track-all/` — add every sheet problem to the SM-2 queue
+- `POST /api/sheets/{slug}/track-selected/` — add the `problem_ids` array from the sheet
+
+The frontend explorer is available at `/sheets`; each sheet detail page is available at `/sheets/{slug}`.
 
 ---
 
