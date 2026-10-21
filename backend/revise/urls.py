@@ -19,6 +19,11 @@ urlpatterns = [
     path('revisions/due-today/', views.due_today, name='due-today'),
     path('revisions/today/', views.today_revisions, name='today-revisions'),
     path('assessments/weekly/', views.weekly_assessment, name='weekly-assessment'),
+    path('assessments/current/', views.current_assessment, name='current-assessment'),
+    path('assessments/history/', views.assessment_history, name='assessment-history'),
+    path('assessments/<int:assessment_id>/start/', views.start_assessment, name='start-assessment'),
+    path('assessments/<int:assessment_id>/submit-answer/', views.submit_assessment_answer, name='submit-assessment-answer'),
+    path('assessments/<int:assessment_id>/complete/', views.finish_assessment, name='complete-assessment'),
     path('dashboard/', views.dashboard, name='dashboard'),
     path('problems/<int:problem_id>/solve/', views.mark_problem_solved, name='mark-problem-solved'),
 ]

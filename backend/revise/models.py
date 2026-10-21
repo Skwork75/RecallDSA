@@ -167,3 +167,48 @@ class ReviewEvent(models.Model):
 
     def __str__(self):
         return f'{self.user} - {self.problem} ({self.confidence}/5)'
+
+
+class Assessment(models.Model):
+    STATUS_CHOICES = [
+        ('scheduled', 'Scheduled'),
+        ('in_progress', 'In progress'),
+        ('completed', 'Completed'),
+    ]
+
+    user = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, related_name='assessments')
+    created_at = models.DateTimeField(default=timezone.now)
+    time_limit_minutes = models.PositiveSmallIntegerField(default=20)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='scheduled')
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    score_percentage = models.PositiveSmallIntegerField(null=True, blank=True)
+    total_problems = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.user} - weekly assessment ({self.created_at:%Y-%m-%d})'
+
+
+class AssessmentProblem(models.Model):
+    STATUS_CHOICES = [
+        ('unanswered', 'Unanswered'),
+        ('solved', 'Solved'),
+        ('missed', 'Missed'),
+    ]
+
+    assessment = models.ForeignKey(Assessment, on_delete=models.CASCADE, related_name='problems')
+    problem = models.ForeignKey(Problem, on_delete=models.CASCADE, related_name='assessment_entries')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='unanswered')
+    answered_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['assessment', 'problem'], name='unique_assessment_problem'),
+        ]
+        ordering = ['id']
+
+    def __str__(self):
+        return f'{self.assessment} - {self.problem} ({self.status})'

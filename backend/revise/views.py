@@ -1,11 +1,13 @@
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from django.contrib.auth import authenticate
 from django.db import transaction
-from django.db.models import Avg, Count
+from django.db.models import Avg, Count, Exists, OuterRef, Q
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from .serializers import (
+    AssessmentSerializer,
+    AssessmentProblemSerializer,
     ProblemSerializer,
     RegisterSerializer,
     UserProblemSerializer,
@@ -13,8 +15,19 @@ from .serializers import (
     DSASheetSerializer,
     DSASheetProblemSerializer,
 )
-from .models import Problem, ReviewEvent, UserProblem, DSASheet, DSASheetProblem, Pattern, UserProblemProgress
+from .models import (
+    Assessment,
+    AssessmentProblem,
+    Problem,
+    ReviewEvent,
+    UserProblem,
+    DSASheet,
+    DSASheetProblem,
+    Pattern,
+    UserProblemProgress,
+)
 from .sm2 import calculate_next_review
+from .services import complete_assessment, generate_weekly_assessment
 from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework import status
@@ -77,9 +90,17 @@ def home(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def dsasheets(request):
-    sheets = DSASheet.objects.filter(
-        problems__isnull=False,
-    ).distinct().prefetch_related('problems__problem__sm2_progress')
+    sheets = DSASheet.objects.annotate(
+        sheet_problem_count=Count('problems', distinct=True),
+        sheet_tracked_count=Count(
+            'problems',
+            filter=Q(
+                problems__problem__sm2_progress__user=request.user,
+                problems__problem__sm2_progress__is_tracked=True,
+            ),
+            distinct=True,
+        ),
+    ).filter(problems__isnull=False).distinct()
     if request.query_params.get('featured', '').lower() in ('1', 'true'):
         sheets = sheets.filter(is_featured=True)
     return Response(DSASheetSerializer(sheets, many=True, context={'request': request}).data)
@@ -89,16 +110,29 @@ def dsasheets(request):
 @permission_classes([IsAuthenticated])
 def dsasheet_detail(request, slug):
     try:
-        sheet = DSASheet.objects.prefetch_related(
-            'problems__problem__pattern',
-            'problems__problem__patterns',
-            'problems__problem__sm2_progress',
+        sheet = DSASheet.objects.annotate(
+            sheet_problem_count=Count('problems', distinct=True),
+            sheet_tracked_count=Count(
+                'problems',
+                filter=Q(
+                    problems__problem__sm2_progress__user=request.user,
+                    problems__problem__sm2_progress__is_tracked=True,
+                ),
+                distinct=True,
+            ),
         ).filter(problems__isnull=False).distinct().get(slug=slug)
     except DSASheet.DoesNotExist:
         return Response({'detail': 'Sheet not found.'}, status=status.HTTP_404_NOT_FOUND)
 
+    is_tracked_by_user = UserProblemProgress.objects.filter(
+        user=request.user,
+        problem_id=OuterRef('problem_id'),
+        is_tracked=True,
+    )
     serialized_problems = DSASheetProblemSerializer(
-        sheet.problems.select_related('problem__pattern').prefetch_related('problem__patterns'),
+        sheet.problems.select_related('problem__pattern').prefetch_related(
+            'problem__patterns',
+        ).annotate(is_tracked_by_user=Exists(is_tracked_by_user)),
         many=True,
         context={'request': request},
     ).data
@@ -430,6 +464,105 @@ def weekly_assessment(request):
     )[:5]
 
     return Response(UserProblemSerializer(selected, many=True).data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def current_assessment(request):
+    now = timezone.now()
+    week_start = now - timedelta(days=now.weekday())
+    week_start = timezone.make_aware(
+        datetime.combine(
+            timezone.localtime(week_start).date(),
+            time.min,
+        ),
+        timezone.get_current_timezone(),
+    )
+    assessment = Assessment.objects.filter(
+        user=request.user,
+        created_at__gte=week_start,
+    ).prefetch_related('problems__problem__pattern', 'problems__problem__patterns').first()
+    if assessment is None:
+        assessment = generate_weekly_assessment(request.user)
+    if assessment is None:
+        return Response(None)
+    return Response(AssessmentSerializer(assessment).data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def assessment_history(request):
+    assessments = Assessment.objects.filter(user=request.user).prefetch_related(
+        'problems__problem__pattern',
+        'problems__problem__patterns',
+    )
+    return Response(AssessmentSerializer(assessments, many=True).data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def start_assessment(request, assessment_id):
+    try:
+        assessment = Assessment.objects.select_for_update().get(pk=assessment_id, user=request.user)
+    except Assessment.DoesNotExist:
+        return Response({'detail': 'Assessment not found.'}, status=status.HTTP_404_NOT_FOUND)
+    if assessment.status == 'scheduled':
+        assessment.status = 'in_progress'
+        assessment.started_at = timezone.now()
+        assessment.save(update_fields=['status', 'started_at'])
+    elif assessment.status != 'in_progress':
+        return Response({'detail': 'This assessment has already been completed.'}, status=status.HTTP_409_CONFLICT)
+    assessment = Assessment.objects.prefetch_related(
+        'problems__problem__pattern',
+        'problems__problem__patterns',
+    ).get(pk=assessment.pk)
+    return Response(AssessmentSerializer(assessment).data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def submit_assessment_answer(request, assessment_id):
+    try:
+        assessment = Assessment.objects.select_for_update().get(pk=assessment_id, user=request.user)
+    except Assessment.DoesNotExist:
+        return Response({'detail': 'Assessment not found.'}, status=status.HTTP_404_NOT_FOUND)
+    if assessment.status != 'in_progress':
+        return Response({'detail': 'Assessment is not in progress.'}, status=status.HTTP_409_CONFLICT)
+
+    problem_id = request.data.get('problem_id')
+    answer = request.data.get('status')
+    if answer not in ('solved', 'missed'):
+        return Response({'detail': 'status must be either solved or missed.'}, status=status.HTTP_400_BAD_REQUEST)
+    if not isinstance(problem_id, int) or isinstance(problem_id, bool):
+        return Response({'detail': 'problem_id must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        entry = AssessmentProblem.objects.get(assessment=assessment, problem_id=problem_id)
+    except AssessmentProblem.DoesNotExist:
+        return Response({'detail': 'Problem is not part of this assessment.'}, status=status.HTTP_400_BAD_REQUEST)
+    entry.status = answer
+    entry.answered_at = timezone.now()
+    entry.save(update_fields=['status', 'answered_at'])
+    return Response(AssessmentProblemSerializer(entry).data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def finish_assessment(request, assessment_id):
+    try:
+        assessment = Assessment.objects.get(pk=assessment_id, user=request.user)
+    except Assessment.DoesNotExist:
+        return Response({'detail': 'Assessment not found.'}, status=status.HTTP_404_NOT_FOUND)
+    try:
+        assessment = complete_assessment(assessment)
+    except ValueError as error:
+        return Response({'detail': str(error)}, status=status.HTTP_409_CONFLICT)
+    assessment = Assessment.objects.prefetch_related(
+        'problems__problem__pattern',
+        'problems__problem__patterns',
+    ).get(pk=assessment.pk)
+    return Response(AssessmentSerializer(assessment).data)
 
 
 @api_view(['GET'])

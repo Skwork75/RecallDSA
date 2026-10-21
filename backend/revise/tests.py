@@ -6,7 +6,18 @@ from django.core.management import call_command
 from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import DSASheet, DSASheetProblem, Pattern, Problem, ReviewEvent, UserProblem, UserProblemProgress
+from .models import (
+	Assessment,
+	AssessmentProblem,
+	DSASheet,
+	DSASheetProblem,
+	Pattern,
+	Problem,
+	ReviewEvent,
+	UserProblem,
+	UserProblemProgress,
+)
+from .services import generate_weekly_assessment
 from .sm2 import calculate_next_review
 
 
@@ -296,6 +307,116 @@ class SM2CalculatorTests(APITestCase):
 		self.assertEqual(UserProblemProgress.objects.get(user=user, problem=problem).confidence_rating, 5)
 
 
+class AssessmentTests(APITestCase):
+	def setUp(self):
+		self.user = get_user_model().objects.create_user(username='assessment-user')
+		self.client.force_authenticate(user=self.user)
+		self.pattern = Pattern.objects.create(p_name='Arrays')
+		self.problems = [
+			Problem.objects.create(
+				title=f'Assessment Problem {index}',
+				leetcode_id=91000 + index,
+				link=f'https://leetcode.com/problems/assessment-{index}/',
+				difficulty='Easy',
+				pattern=self.pattern,
+			)
+			for index in range(5)
+		]
+
+	def test_generation_prioritizes_very_overdue_before_weak_and_recent(self):
+		now = timezone.now()
+		for problem in self.problems:
+			UserProblemProgress.objects.create(
+				user=self.user,
+				problem=problem,
+				next_review_date=now + timedelta(days=2),
+			)
+		UserProblemProgress.objects.filter(
+			user=self.user,
+			problem=self.problems[0],
+		).update(next_review_date=now - timedelta(days=4))
+		UserProblemProgress.objects.filter(
+			user=self.user,
+			problem=self.problems[1],
+		).update(confidence_rating=2)
+		ReviewEvent.objects.create(user=self.user, problem=self.problems[1], confidence=2)
+		UserProblemProgress.objects.filter(
+			user=self.user,
+			problem=self.problems[2],
+		).update(last_reviewed_at=now - timedelta(hours=1))
+
+		assessment = generate_weekly_assessment(self.user)
+		selected_ids = list(assessment.problems.values_list('problem_id', flat=True))
+
+		self.assertEqual(assessment.total_problems, 5)
+		self.assertEqual(selected_ids[0], self.problems[0].id)
+		self.assertEqual(selected_ids[1], self.problems[1].id)
+		self.assertEqual(selected_ids[2], self.problems[2].id)
+		self.assertEqual(generate_weekly_assessment(self.user).id, assessment.id)
+
+	def test_assessment_lifecycle_scores_answers_and_feeds_sm2_once(self):
+		assessment = Assessment.objects.create(
+			user=self.user,
+			time_limit_minutes=20,
+			total_problems=2,
+		)
+		AssessmentProblem.objects.create(
+			assessment=assessment,
+			problem=self.problems[0],
+		)
+		AssessmentProblem.objects.create(
+			assessment=assessment,
+			problem=self.problems[1],
+		)
+
+		start_response = self.client.post(f'/api/assessments/{assessment.id}/start/')
+		self.assertEqual(start_response.status_code, 200)
+		self.assertEqual(start_response.json()['status'], 'in_progress')
+
+		answer_response = self.client.post(
+			f'/api/assessments/{assessment.id}/submit-answer/',
+			{'problem_id': self.problems[0].id, 'status': 'solved'},
+			format='json',
+		)
+		self.assertEqual(answer_response.status_code, 200)
+		self.assertEqual(answer_response.json()['status'], 'solved')
+
+		result = self.client.post(f'/api/assessments/{assessment.id}/complete/').json()
+		self.assertEqual(result['status'], 'completed')
+		self.assertEqual(result['score_percentage'], 50)
+		self.assertEqual(result['problems'][1]['status'], 'missed')
+		self.assertEqual(
+			UserProblemProgress.objects.get(user=self.user, problem=self.problems[0]).confidence_rating,
+			4,
+		)
+		self.assertEqual(
+			UserProblemProgress.objects.get(user=self.user, problem=self.problems[1]).confidence_rating,
+			1,
+		)
+		self.assertEqual(ReviewEvent.objects.filter(user=self.user).count(), 2)
+		self.client.post(f'/api/assessments/{assessment.id}/complete/')
+		self.assertEqual(ReviewEvent.objects.filter(user=self.user).count(), 2)
+
+	def test_current_and_history_are_user_scoped(self):
+		for problem in self.problems:
+			UserProblemProgress.objects.create(user=self.user, problem=problem)
+		current_response = self.client.get('/api/assessments/current/')
+		self.assertEqual(current_response.status_code, 200)
+		self.assertEqual(current_response.json()['total_problems'], 5)
+		self.assertEqual(len(self.client.get('/api/assessments/history/').json()), 1)
+
+		other_user = get_user_model().objects.create_user(username='another-assessment-user')
+		self.client.force_authenticate(user=other_user)
+		self.assertEqual(self.client.get('/api/assessments/history/').json(), [])
+
+	def test_generate_assessments_command_is_repeatable(self):
+		for problem in self.problems:
+			UserProblemProgress.objects.create(user=self.user, problem=problem)
+		call_command('generate_assessments', stdout=StringIO())
+		call_command('generate_assessments', stdout=StringIO())
+		self.assertEqual(Assessment.objects.filter(user=self.user).count(), 1)
+
+
 class CuratedSheetTests(APITestCase):
 	def setUp(self):
 		self.user = get_user_model().objects.create_user(username='sheet-user', password='secure-password-123')
@@ -349,6 +470,27 @@ class CuratedSheetTests(APITestCase):
 		self.assertFalse(problem['is_tracked_by_user'])
 		self.assertEqual(problem['order'], 1)
 		self.assertEqual(self.client.get('/api/sheets/empty-sheet/').status_code, 404)
+
+	def test_progress_annotations_are_scoped_to_the_authenticated_user(self):
+		other_user = get_user_model().objects.create_user(username='other-sheet-user')
+		UserProblemProgress.objects.create(user=self.user, problem=self.first_problem)
+		UserProblemProgress.objects.create(user=other_user, problem=self.second_problem)
+
+		sheet_summary = next(
+			sheet for sheet in self.client.get('/api/sheets/').json()
+			if sheet['slug'] == self.sheet.slug
+		)
+		self.assertEqual(sheet_summary['tracked_count'], 1)
+		self.assertEqual(sheet_summary['progress'], {'tracked': 1, 'total': 2})
+
+		detail = self.client.get(f'/api/sheets/{self.sheet.slug}/').json()
+		tracked_status = {
+			item['problem']['id']: item['is_tracked_by_user']
+			for category in detail['categories']
+			for item in category['problems']
+		}
+		self.assertTrue(tracked_status[self.first_problem.id])
+		self.assertFalse(tracked_status[self.second_problem.id])
 
 	def test_track_all_adds_sm2_progress_once(self):
 		first_response = self.client.post('/api/sheets/blind-75-test/track-all/', {}, format='json')

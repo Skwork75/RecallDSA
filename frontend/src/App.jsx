@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import toast, { Toaster } from 'react-hot-toast'
 import { useAuth } from './context/useAuth.js'
 import { SheetDetail, SheetExplorer } from './SheetPages.jsx'
+import { AssessmentCard, AssessmentHistory, AssessmentView } from './AssessmentPages.jsx'
 
 const difficultyStyles = { Easy: 'easy', Medium: 'medium', Hard: 'hard' }
 
@@ -146,15 +147,7 @@ function Dashboard({ theme, onToggle }) {
   const [solvingId, setSolvingId] = useState(null)
   const [reviewProblem, setReviewProblem] = useState(null)
   const [todayRevisions, setTodayRevisions] = useState([])
-  const [weeklyAssessment, setWeeklyAssessment] = useState([])
   const [dashboardMetrics, setDashboardMetrics] = useState(null)
-  const [assessmentSession, setAssessmentSession] = useState({
-    active: false,
-    timeLeft: 600,
-    selectedProblems: [],
-    responses: {},
-    finished: false,
-  })
 
   useEffect(() => {
     const fetchQuestions = async () => {
@@ -181,51 +174,10 @@ function Dashboard({ theme, onToggle }) {
       .then(setTodayRevisions)
       .catch(() => setTodayRevisions([]))
 
-    authenticatedRequest('/api/assessments/weekly/')
-      .then(setWeeklyAssessment)
-      .catch(() => setWeeklyAssessment([]))
-
     authenticatedRequest('/api/dashboard/')
       .then(setDashboardMetrics)
       .catch(() => setDashboardMetrics(null))
   }, [authenticatedRequest, user])
-
-  useEffect(() => {
-    if (!assessmentSession.active) return undefined
-
-    const timer = setInterval(() => {
-      setAssessmentSession((current) => {
-        if (current.timeLeft <= 1) {
-          return { ...current, active: false, finished: true, timeLeft: 0 }
-        }
-
-        return { ...current, timeLeft: current.timeLeft - 1 }
-      })
-    }, 1000)
-
-    return () => clearInterval(timer)
-  }, [assessmentSession.active])
-
-  const startAssessment = () => {
-    const selectedProblems = weeklyAssessment.slice(0, 10)
-    setAssessmentSession({
-      active: true,
-      timeLeft: 600,
-      selectedProblems,
-      responses: {},
-      finished: false,
-    })
-  }
-
-  const recordAssessmentResponse = (problemId, solved) => {
-    setAssessmentSession((current) => ({
-      ...current,
-      responses: {
-        ...current.responses,
-        [problemId]: solved,
-      },
-    }))
-  }
 
   const markSolved = async (problemId, confidence = 3) => {
     setSolvingId(problemId)
@@ -238,15 +190,13 @@ function Dashboard({ theme, onToggle }) {
       const displayDays = Math.max(1, nextInterval || Math.ceil((new Date(response?.next_review_date).getTime() - Date.now()) / 86400000))
       toast.success(`Next review in ${displayDays} ${displayDays === 1 ? 'day' : 'days'}`)
       setSolvedIds((current) => new Set([...current, problemId]))
-      const [updatedProfile, nextDue, updatedAssessment, updatedMetrics] = await Promise.all([
+      const [updatedProfile, nextDue, updatedMetrics] = await Promise.all([
         authenticatedRequest('/api/auth/profile/'),
         authenticatedRequest('/api/revisions/due-today/'),
-        authenticatedRequest('/api/assessments/weekly/'),
         authenticatedRequest('/api/dashboard/'),
       ])
       setProfile(updatedProfile)
       setTodayRevisions(nextDue)
-      setWeeklyAssessment(updatedAssessment)
       setDashboardMetrics(updatedMetrics)
       setReviewProblem(null)
     } catch (solveError) {
@@ -305,50 +255,7 @@ function Dashboard({ theme, onToggle }) {
           <div className="section-heading"><div><p className="eyebrow">TODAY'S REVISION</p><h2>{todayRevisions.length === 0 ? 'Nothing due today' : `You have ${todayRevisions.length} problem${todayRevisions.length === 1 ? '' : 's'} to revise.`}</h2></div><span className="result-count">{todayRevisions.length} due</span></div>
           {todayRevisions.length === 0 ? <div className="empty-state">You are all caught up. Come back later for the next revision cycle.</div> : <div className="revision-list">{todayRevisions.map((progress) => <article className="revision-card" key={progress.id}><div className="revision-card-header"><span className={`difficulty-dot ${difficultyStyles[progress.problem.difficulty]}`} /><span className="difficulty-label">{progress.problem.difficulty}</span></div><h3>{progress.problem.title}</h3><p className="pattern-label">{progress.problem.pattern?.p_name || 'Uncategorized pattern'}</p><div className="revision-card-footer"><button className="primary-button" onClick={() => setReviewProblem({ ...progress.problem, id: progress.problem.id })} type="button">Start Revision</button></div></article>)}</div>}
         </section>
-        <section className="assessment-section">
-          <div className="section-heading"><div><p className="eyebrow">WEEKLY ASSESSMENT</p><h2>{weeklyAssessment.length === 0 ? 'No assessment set yet' : 'This week’s focus list'}</h2></div><span className="result-count">{assessmentSession.selectedProblems.length || weeklyAssessment.length} selected</span></div>
-          {weeklyAssessment.length === 0 ? <div className="empty-state">Your weekly assessment will surface your weakest and most overdue problems.</div> : (
-            <>
-              {!assessmentSession.active && !assessmentSession.finished && (
-                <div className="empty-state">
-                  <p>Run a timed assessment over up to 10 priority problems selected from due revisions, weak patterns, and recent reviews.</p>
-                  <button className="primary-button" onClick={startAssessment} type="button">Start 10-minute assessment</button>
-                </div>
-              )}
-              {(assessmentSession.active || assessmentSession.finished) && (
-                <div className="assessment-timer-row">
-                  <strong>{Math.floor(assessmentSession.timeLeft / 60)}:{String(assessmentSession.timeLeft % 60).padStart(2, '0')}</strong>
-                  <span>{Object.keys(assessmentSession.responses).length}/{assessmentSession.selectedProblems.length} answered</span>
-                </div>
-              )}
-              {(assessmentSession.active || assessmentSession.finished) && (
-                <div className="assessment-grid">
-                  {assessmentSession.selectedProblems.map((progress) => (
-                    <article className="assessment-card" key={progress.id}>
-                      <div className="assessment-card-header">
-                        <span className={`difficulty-dot ${difficultyStyles[progress.problem.difficulty]}`} />
-                        <span className="difficulty-label">{progress.problem.difficulty}</span>
-                      </div>
-                      <h3>{progress.problem.title}</h3>
-                      <p className="pattern-label">{progress.problem.pattern?.p_name || 'Uncategorized pattern'}</p>
-                      <div className="assessment-card-footer">
-                        <button className="primary-button" onClick={() => setReviewProblem({ ...progress.problem, id: progress.problem.id })} type="button">Review</button>
-                        <button className={`solve-button ${assessmentSession.responses[progress.problem.id] === true ? 'is-solved' : ''}`} onClick={() => recordAssessmentResponse(progress.problem.id, true)} type="button">Solved</button>
-                        <button className={`solve-button ${assessmentSession.responses[progress.problem.id] === false ? 'is-solved' : ''}`} onClick={() => recordAssessmentResponse(progress.problem.id, false)} type="button">Missed</button>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              )}
-              {!assessmentSession.active && assessmentSession.finished && (
-                <div className="empty-state">
-                  <p>Assessment complete. You answered {Object.keys(assessmentSession.responses).length} questions in this round.</p>
-                  <button className="primary-button" onClick={startAssessment} type="button">Restart weekly assessment</button>
-                </div>
-              )}
-            </>
-          )}
-        </section>
+        <AssessmentCard />
         <section className="library-section" id="library">
           <div className="section-heading"><div><p className="eyebrow">YOUR LIBRARY</p><h2>Problem patterns</h2></div><span className="result-count">{filteredQuestions.length} shown</span></div>
           <div className="library-tools"><label className="search-field"><span aria-hidden="true">⌕</span><input onChange={(event) => setQuery(event.target.value)} placeholder="Search problems or patterns" value={query} /></label><div className="filter-group" aria-label="Filter by difficulty">{['All', 'Easy', 'Medium', 'Hard'].map((option) => <button className={difficulty === option ? 'active' : ''} key={option} onClick={() => setDifficulty(option)} type="button">{option}</button>)}</div></div>
@@ -385,6 +292,10 @@ function App() {
           ? <SheetExplorer onToggle={toggleTheme} theme={theme} />
           : path.startsWith('/sheets/')
             ? <SheetDetail onToggle={toggleTheme} slug={decodeURIComponent(path.slice('/sheets/'.length))} theme={theme} />
+            : path === '/assessments/current'
+              ? <AssessmentView />
+              : path === '/assessments/history'
+                ? <AssessmentHistory />
             : <Dashboard onToggle={toggleTheme} theme={theme} />
         : <AuthScreen onToggle={toggleTheme} theme={theme} />}
     </>

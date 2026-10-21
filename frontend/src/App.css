@@ -226,6 +226,53 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .assessment-card h3 { font-family: 'Fraunces', serif; font-size: 1.5rem; letter-spacing: -.04em; margin: 14px 0 8px; }
 .assessment-card-footer { margin-top: 18px; }
 .assessment-card-footer .primary-button { margin-top: 0; width: 100%; justify-content: center; }
+.assessment-page { min-height: 100vh; }
+.assessment-page-header { align-items: center; background: var(--white); border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; padding: 18px max(5vw, calc((100vw - 1120px) / 2)); }
+.assessment-page-header > div { display: flex; gap: 22px; }
+.assessment-page-header > strong { font-size: 13px; }
+.assessment-page-content { margin: 0 auto; max-width: 960px; padding: 48px 24px 90px; }
+.assessment-page-content > .section-heading { margin-bottom: 28px; }
+.assessment-page-content > .section-heading h1, .assessment-start-panel h1, .assessment-test-heading h1 { font-family: 'Fraunces', serif; font-size: clamp(32px, 5vw, 52px); letter-spacing: -.045em; margin: 0; }
+.assessment-card-feature { align-items: center; display: flex; justify-content: space-between; gap: 28px; }
+.assessment-card-feature h3 { margin: 8px 0; }
+.assessment-card-feature p:not(.eyebrow) { color: var(--muted); margin: 0; }
+.assessment-card-feature .primary-button { flex-shrink: 0; text-decoration: none; }
+.assessment-card-score { color: var(--green); display: inline-block; margin-top: 12px; }
+.assessment-history-link { color: var(--green); font-size: 13px; text-decoration: none; }
+.assessment-start-panel, .assessment-question, .assessment-results { background: var(--white); border: 1px solid var(--line); box-shadow: var(--shadow); padding: clamp(22px, 5vw, 48px); }
+.assessment-start-panel h1 { margin: 12px 0; }
+.assessment-start-panel > p:not(.eyebrow) { color: var(--muted); margin: 0 0 24px; }
+.assessment-test-heading { align-items: center; display: flex; justify-content: space-between; }
+.assessment-countdown { background: var(--lime); border-radius: 4px; color: var(--green); font-family: 'DM Mono', monospace; font-size: 24px; padding: 12px 16px; }
+.assessment-countdown.time-warning { background: #fae8e6; color: #b42318; }
+.assessment-problem-nav { display: flex; flex-wrap: wrap; gap: 10px; margin: 26px 0; }
+.assessment-problem-nav button { background: var(--white); border: 1px solid var(--line); border-radius: 50%; color: var(--ink); cursor: pointer; height: 42px; width: 42px; }
+.assessment-problem-nav button.active { border-color: var(--green); box-shadow: 0 0 0 2px var(--green); }
+.assessment-problem-nav button.answered { background: var(--lime); }
+.assessment-question h2 { font-family: 'Fraunces', serif; font-size: clamp(28px, 4vw, 40px); letter-spacing: -.04em; margin: 20px 0 8px; }
+.assessment-question > p { color: var(--muted); }
+.assessment-problem-link { color: var(--green); display: inline-block; font-size: 14px; margin-top: 8px; }
+.assessment-answer-actions { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 30px; }
+.assessment-answer { border: 1px solid transparent; border-radius: 4px; cursor: pointer; font-size: 15px; font-weight: 700; min-width: 150px; padding: 14px 20px; }
+.assessment-answer.solved { background: #e8f5eb; color: #20723a; }
+.assessment-answer.missed { background: #fcebea; color: #b42318; }
+.assessment-answer.selected { box-shadow: 0 0 0 2px currentColor; }
+.assessment-answer:disabled { cursor: wait; opacity: .7; }
+.assessment-test-footer { align-items: center; display: flex; flex-wrap: wrap; gap: 12px; justify-content: flex-end; margin-top: 22px; }
+.assessment-test-footer .primary-button { margin: 0; }
+.assessment-results { margin-top: 28px; }
+.assessment-results > h2 { color: var(--green); font-family: 'Fraunces', serif; font-size: 64px; letter-spacing: -.05em; margin: 8px 0; }
+.assessment-results > h2 span { color: var(--ink); font-size: 24px; letter-spacing: 0; }
+.assessment-results > p { color: var(--muted); }
+.assessment-breakdown, .assessment-missed { margin-top: 30px; }
+.assessment-breakdown h3, .assessment-missed h3 { font-family: 'Fraunces', serif; font-size: 22px; }
+.assessment-breakdown-row { border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; padding: 12px 0; }
+.assessment-missed > a { border-bottom: 1px solid var(--line); color: var(--ink); display: flex; justify-content: space-between; gap: 12px; padding: 13px 0; text-decoration: none; }
+.assessment-missed > a span { color: var(--muted); font-size: 12px; }
+.assessment-history-list { display: grid; gap: 10px; margin: 24px 0; }
+.assessment-history-item { align-items: center; background: var(--white); border: 1px solid var(--line); color: var(--ink); cursor: pointer; display: grid; gap: 12px; grid-template-columns: 1fr auto auto; padding: 16px 20px; text-align: left; }
+.assessment-history-item.selected { border-color: var(--green); }
+.assessment-history-item small { color: var(--muted); }
 .metrics-row { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 42px 0 55px; }
 .pattern-metric strong { font-family: 'DM Sans', sans-serif; font-size: 20px; letter-spacing: 0; line-height: 1.2; overflow-wrap: anywhere; }
 .pattern-analysis-section { margin: 36px 0 52px; }

@@ -1,4 +1,14 @@
-from .models import Pattern, Problem, Solved, UserProblem, GlobalProblem, DSASheet, DSASheetProblem
+from .models import (
+    Assessment,
+    AssessmentProblem,
+    Pattern,
+    Problem,
+    Solved,
+    UserProblem,
+    GlobalProblem,
+    DSASheet,
+    DSASheetProblem,
+)
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
@@ -72,9 +82,13 @@ class DSASheetSerializer(serializers.ModelSerializer):
         ]
 
     def get_total_problems(self, sheet):
+        if hasattr(sheet, 'sheet_problem_count'):
+            return sheet.sheet_problem_count
         return sheet.problems.count()
 
     def get_tracked_count(self, sheet):
+        if hasattr(sheet, 'sheet_tracked_count'):
+            return sheet.sheet_tracked_count
         user = self.context.get('request').user if self.context.get('request') else None
         if not user or not user.is_authenticated:
             return 0
@@ -91,18 +105,46 @@ class DSASheetSerializer(serializers.ModelSerializer):
 
 class DSASheetProblemSerializer(serializers.ModelSerializer):
     problem = ProblemSerializer(read_only=True)
-    is_tracked_by_user = serializers.SerializerMethodField()
+    is_tracked_by_user = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = DSASheetProblem
         fields = ['id', 'sheet', 'problem', 'order', 'category', 'is_tracked_by_user']
 
-    def get_is_tracked_by_user(self, sheet_problem):
-        user = self.context.get('request').user if self.context.get('request') else None
-        if not user or not user.is_authenticated:
-            return False
-        return User.objects.filter(
-            pk=user.pk,
-            sm2_progress__problem=sheet_problem.problem,
-            sm2_progress__is_tracked=True,
-        ).exists()
+
+class AssessmentProblemSerializer(serializers.ModelSerializer):
+    problem = ProblemSerializer(read_only=True)
+
+    class Meta:
+        model = AssessmentProblem
+        fields = ['id', 'problem', 'status', 'answered_at']
+
+
+class AssessmentSerializer(serializers.ModelSerializer):
+    problems = AssessmentProblemSerializer(many=True, read_only=True)
+    pattern_breakdown = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Assessment
+        fields = [
+            'id',
+            'created_at',
+            'time_limit_minutes',
+            'status',
+            'started_at',
+            'completed_at',
+            'score_percentage',
+            'total_problems',
+            'problems',
+            'pattern_breakdown',
+        ]
+
+    def get_pattern_breakdown(self, assessment):
+        breakdown = {}
+        for entry in assessment.problems.all():
+            pattern = entry.problem.pattern
+            name = pattern.p_name if pattern else 'Uncategorized'
+            totals = breakdown.setdefault(name, {'name': name, 'solved': 0, 'total': 0})
+            totals['total'] += 1
+            totals['solved'] += int(entry.status == 'solved')
+        return list(breakdown.values())
