@@ -77,7 +77,9 @@ def home(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def dsasheets(request):
-    sheets = DSASheet.objects.prefetch_related('problems__problem__sm2_progress').all()
+    sheets = DSASheet.objects.filter(
+        problems__isnull=False,
+    ).distinct().prefetch_related('problems__problem__sm2_progress')
     if request.query_params.get('featured', '').lower() in ('1', 'true'):
         sheets = sheets.filter(is_featured=True)
     return Response(DSASheetSerializer(sheets, many=True, context={'request': request}).data)
@@ -91,7 +93,7 @@ def dsasheet_detail(request, slug):
             'problems__problem__pattern',
             'problems__problem__patterns',
             'problems__problem__sm2_progress',
-        ).get(slug=slug)
+        ).filter(problems__isnull=False).distinct().get(slug=slug)
     except DSASheet.DoesNotExist:
         return Response({'detail': 'Sheet not found.'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -278,6 +280,7 @@ def profile(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@transaction.atomic
 def submit_review(request):
     """Submit an SM-2 review and update the user's per-problem progress."""
     problem_id = request.data.get('problem_id')
@@ -327,6 +330,26 @@ def submit_review(request):
     progress.is_tracked = True
     progress.updated_at = timezone.now()
     progress.save()
+
+    solved_progress, _ = UserProblem.objects.get_or_create(
+        user=request.user,
+        problem=problem,
+    )
+    scheduled_for = solved_progress.next_revision if solved_progress.revision_count else None
+    solved_progress.solved = True
+    solved_progress.confidence = confidence
+    solved_progress.interval = next_state['interval']
+    solved_progress.last_reviewed = progress.last_reviewed_at
+    solved_progress.next_revision = progress.next_review_date
+    solved_progress.revision_count += 1
+    solved_progress.save()
+    ReviewEvent.objects.create(
+        user=request.user,
+        problem=problem,
+        confidence=confidence,
+        scheduled_for=scheduled_for,
+        reviewed_at=progress.last_reviewed_at,
+    )
 
     return Response({
         'problem_id': problem.id,
@@ -426,16 +449,17 @@ def dashboard(request):
     review_dates = set()
     for event in events:
         pattern = event.problem.pattern
-        totals = pattern_totals.setdefault(pattern.id, {
-            'id': pattern.id,
-            'name': pattern.p_name,
-            'confidence_total': 0,
-            'review_count': 0,
-        })
-        totals['confidence_total'] += event.confidence
-        totals['review_count'] += 1
         event_problem_ids.add(event.problem_id)
         review_dates.add(timezone.localdate(event.reviewed_at))
+        if pattern is not None:
+            totals = pattern_totals.setdefault(pattern.id, {
+                'id': pattern.id,
+                'name': pattern.p_name,
+                'confidence_total': 0,
+                'review_count': 0,
+            })
+            totals['confidence_total'] += event.confidence
+            totals['review_count'] += 1
 
     for progress in progress_items:
         if progress.last_reviewed:
@@ -443,6 +467,8 @@ def dashboard(request):
         if progress.confidence is None or progress.problem_id in event_problem_ids:
             continue
         pattern = progress.problem.pattern
+        if pattern is None:
+            continue
         totals = pattern_totals.setdefault(pattern.id, {
             'id': pattern.id,
             'name': pattern.p_name,

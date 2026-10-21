@@ -26,16 +26,44 @@ async function request(path, options = {}) {
       ...options.headers,
     },
   })
-  const data = response.status === 205 ? null : await response.json()
+  if (response.status === 204 || response.status === 205) {
+    return null
+  }
+
+  const contentType = response.headers.get('content-type') || ''
+  if (!contentType.includes('application/json') && !contentType.includes('+json')) {
+    throw new Error(`The API returned an unexpected response (${response.status}). Check that Django is running and its database migrations are applied.`)
+  }
+
+  let data
+  try {
+    data = await response.json()
+  } catch {
+    throw new Error(`The API returned invalid JSON (${response.status}). Check the Django server output for the underlying error.`)
+  }
 
   if (!response.ok) {
-    const validationMessage = data && typeof data === 'object'
-      ? Object.values(data).flat().join(' ')
-      : ''
+    const validationMessage = getErrorMessage(data)
     throw new Error(validationMessage || 'Authentication request failed')
   }
 
   return data
+}
+
+function getErrorMessage(value) {
+  if (typeof value === 'string') {
+    return value
+  }
+  if (Array.isArray(value)) {
+    return value.map(getErrorMessage).filter(Boolean).join(' ')
+  }
+  if (value && typeof value === 'object') {
+    if (value.detail) {
+      return getErrorMessage(value.detail)
+    }
+    return Object.values(value).map(getErrorMessage).filter(Boolean).join(' ')
+  }
+  return ''
 }
 
 export function AuthProvider({ children }) {

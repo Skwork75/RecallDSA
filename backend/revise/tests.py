@@ -101,6 +101,34 @@ class AuthenticationTests(APITestCase):
 		self.assertIsNotNone(user_problem.next_revision)
 		self.assertEqual(ReviewEvent.objects.filter(user=user, problem=problem).count(), 1)
 
+	def test_submit_review_adds_problem_to_solved_profile_and_dashboard(self):
+		user = get_user_model().objects.create_user(username='mira', password='secure-password-123')
+		problem = Problem.objects.create(
+			title='Two Sum',
+			leetcode_id=1,
+			link='https://leetcode.com/problems/two-sum/',
+			difficulty='Easy',
+		)
+		refresh = RefreshToken.for_user(user)
+		self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {refresh.access_token}')
+
+		response = self.client.post(
+			'/api/revisions/submit-review/',
+			{'problem_id': problem.id, 'confidence_rating': 4},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertTrue(UserProblem.objects.get(user=user, problem=problem).solved)
+		self.client.post(
+			'/api/revisions/submit-review/',
+			{'problem_id': problem.id, 'confidence_rating': 5},
+			format='json',
+		)
+		self.assertEqual(len(self.client.get('/api/auth/profile/').json()['solved_problems']), 1)
+		self.assertEqual(self.client.get('/api/dashboard/').json()['problems_solved'], 1)
+		self.assertEqual(ReviewEvent.objects.filter(user=user, problem=problem).count(), 2)
+
 	def test_today_revisions_returns_due_items_for_logged_user(self):
 		user = get_user_model().objects.create_user(username='dana', password='secure-password-123')
 		other_user = get_user_model().objects.create_user(username='zoe', password='secure-password-123')
@@ -306,8 +334,10 @@ class CuratedSheetTests(APITestCase):
 		)
 
 	def test_sheet_list_and_detail_include_per_user_progress(self):
+		empty_sheet = DSASheet.objects.create(title='Empty sheet', slug='empty-sheet')
 		list_response = self.client.get('/api/sheets/')
 		self.assertEqual(list_response.status_code, 200)
+		self.assertNotIn(empty_sheet.slug, [sheet['slug'] for sheet in list_response.json()])
 		sheet_summary = next(sheet for sheet in list_response.json() if sheet['slug'] == 'blind-75-test')
 		self.assertEqual(sheet_summary['title'], 'Blind 75')
 		self.assertEqual(sheet_summary['progress'], {'tracked': 0, 'total': 2})
@@ -318,6 +348,7 @@ class CuratedSheetTests(APITestCase):
 		problem = detail_response.json()['categories'][0]['problems'][0]
 		self.assertFalse(problem['is_tracked_by_user'])
 		self.assertEqual(problem['order'], 1)
+		self.assertEqual(self.client.get('/api/sheets/empty-sheet/').status_code, 404)
 
 	def test_track_all_adds_sm2_progress_once(self):
 		first_response = self.client.post('/api/sheets/blind-75-test/track-all/', {}, format='json')

@@ -159,13 +159,11 @@ function Dashboard({ theme, onToggle }) {
   useEffect(() => {
     const fetchQuestions = async () => {
       try {
-        const response = await fetch('/api/home/')
-        if (!response.ok) throw new Error('Unable to load questions from the API')
-        setQuestions(await response.json())
+        setQuestions(await authenticatedRequest('/api/home/'))
       } catch (fetchError) { setError(fetchError.message) } finally { setLoading(false) }
     }
     fetchQuestions()
-  }, [])
+  }, [authenticatedRequest])
 
   useEffect(() => {
     authenticatedRequest('/api/auth/profile/')
@@ -268,8 +266,26 @@ function Dashboard({ theme, onToggle }) {
 
   return (
     <main className="dashboard-page">
-      <header className="topbar"><Logo /><div className="topbar-actions"><ThemeToggle onToggle={onToggle} theme={theme} /><button className="user-chip" onClick={() => setProfileOpen((open) => !open)} type="button" aria-expanded={profileOpen}><span>{user?.username?.charAt(0).toUpperCase()}</span><strong>{user?.username}</strong></button><button className="logout-button" onClick={logout} type="button">Sign out</button>{profileOpen && profile && <ProfilePanel onClose={() => setProfileOpen(false)} profile={profile} />}</div></header>
-      <div className="dashboard-content">
+      <aside className="workspace-sidebar">
+        <a className="workspace-brand" href="/" aria-label="RecallDSA overview"><Logo /></a>
+        <p className="workspace-nav-label">Workspace</p>
+        <nav className="workspace-navigation" aria-label="Workspace navigation">
+          <a className="active" href="#overview"><span aria-hidden="true">▦</span>Overview</a>
+          <a href="#library"><span aria-hidden="true">⌘</span>Problems</a>
+          <a href="#today-revisions"><span aria-hidden="true">◷</span>Review queue<span className="workspace-nav-count">{todayRevisions.length}</span></a>
+          <a href="/sheets"><span aria-hidden="true">▤</span>DSA sheets</a>
+        </nav>
+        <div className="sidebar-goal">
+          <span className="sidebar-goal-icon" aria-hidden="true">✦</span>
+          <strong>Keep your edge</strong>
+          <p>Small practice sessions build lasting problem-solving instincts.</p>
+          <a href="#today-revisions">Continue practice <span aria-hidden="true">↗</span></a>
+        </div>
+        <div className="sidebar-account"><span>{user?.username?.charAt(0).toUpperCase()}</span><div><strong>{user?.username}</strong><small>Personal workspace</small></div></div>
+      </aside>
+      <div className="workspace-main">
+      <header className="topbar"><div className="workspace-breadcrumb"><span>Workspace</span><span aria-hidden="true">/</span><strong>Overview</strong></div><div className="topbar-actions"><ThemeToggle onToggle={onToggle} theme={theme} /><button className="user-chip" onClick={() => setProfileOpen((open) => !open)} type="button" aria-expanded={profileOpen}><span>{user?.username?.charAt(0).toUpperCase()}</span><strong>{user?.username}</strong></button><button className="logout-button" onClick={logout} type="button">Sign out</button>{profileOpen && profile && <ProfilePanel onClose={() => setProfileOpen(false)} profile={profile} />}</div></header>
+      <div className="dashboard-content" id="overview">
         <section className="welcome-row"><div><p className="eyebrow">YOUR NEXT REP</p><h1>Ready when you are, {firstName}.</h1><p className="subheading">A small, steady review keeps your instincts sharp.</p></div><div className="streak-badge"><span>✦</span><div><strong>{profile?.solved_problems?.length ? `${Math.min(profile.solved_problems.length, 7)} day` : '0 day'}</strong><small>current streak</small></div></div></section>
         {dashboardMetrics?.problems_tracked === 0 && <a className="dashboard-sheets-cta" href="/sheets"><span><small>NEW TO RECALLDSA?</small><strong>Start with a curated DSA sheet</strong><em>Explore interview sheets and build your revision plan.</em></span><b>Explore Sheets <span>↗</span></b></a>}
         <section className="metrics-row" aria-label="Your revision dashboard">
@@ -341,6 +357,7 @@ function Dashboard({ theme, onToggle }) {
           {!loading && !error && filteredQuestions.length === 0 && <div className="empty-state">No problems match this view yet.</div>}
           {!loading && !error && filteredQuestions.length > 0 && <div className="problem-grid">{filteredQuestions.map((question) => { const solved = solvedIds.has(question.id); return <article className={`problem-card ${solved ? 'solved-card' : ''}`} key={question.id ?? question.q_id}><div className="card-topline"><span className={`difficulty-dot ${difficultyStyles[question.difficulty]}`} /><span className="difficulty-label">{question.difficulty}</span><span className="question-number">#{String(question.leetcode_id).padStart(4, '0')}</span></div><h3>{question.title}</h3><p className="pattern-label">{question.pattern?.p_name || 'Uncategorized pattern'}</p><div className="card-footer"><button className={`solve-button ${solved ? 'is-solved' : ''}`} disabled={solvingId === question.id} onClick={() => setReviewProblem(question)} type="button">{solved ? 'Review' : solvingId === question.id ? 'Saving...' : 'Mark as solved'}</button>{question.link && <a href={question.link} rel="noreferrer" target="_blank">Open problem <span>↗</span></a>}</div></article> })}</div>}
         </section>
+      </div>
       </div>
       {reviewProblem && <ConfidenceModal problem={reviewProblem} onClose={() => setReviewProblem(null)} onSubmit={(confidence) => markSolved(reviewProblem.id, confidence)} submitting={solvingId === reviewProblem.id} />}
     </main>
