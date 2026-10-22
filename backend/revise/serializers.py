@@ -15,6 +15,51 @@ from rest_framework import serializers
 User = get_user_model()
 
 
+class PatternStrengthSerializer(serializers.Serializer):
+    pattern_id = serializers.IntegerField()
+    pattern_name = serializers.CharField()
+    average_confidence = serializers.FloatField(allow_null=True)
+    total_problems = serializers.IntegerField()
+    trend = serializers.ChoiceField(choices=['improving', 'declining', 'steady'])
+
+
+class PatternStrengthResponseSerializer(serializers.Serializer):
+    patterns = PatternStrengthSerializer(many=True)
+    strongest = PatternStrengthSerializer(many=True)
+    weakest = PatternStrengthSerializer(many=True)
+    summary = serializers.DictField()
+
+
+class RecommendationProblemSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    title = serializers.CharField()
+    difficulty = serializers.CharField()
+    link = serializers.CharField()
+
+
+class RecommendationSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(choices=['weak_pattern', 'overdue', 'declining', 'not_started'])
+    title = serializers.CharField()
+    description = serializers.CharField()
+    priority = serializers.IntegerField()
+    pattern_id = serializers.IntegerField(allow_null=True)
+    pattern_name = serializers.CharField()
+    problem_ids = serializers.ListField(child=serializers.IntegerField())
+    problems = RecommendationProblemSerializer(many=True)
+    action_label = serializers.CharField()
+
+
+class ActivityHeatmapDaySerializer(serializers.Serializer):
+    date = serializers.DateField()
+    count = serializers.IntegerField()
+
+
+class ConfidenceTrendDaySerializer(serializers.Serializer):
+    date = serializers.DateField()
+    average_confidence = serializers.FloatField(allow_null=True)
+    review_count = serializers.IntegerField()
+
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User

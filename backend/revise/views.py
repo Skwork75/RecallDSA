@@ -1,14 +1,20 @@
 from datetime import datetime, time, timedelta
 from django.contrib.auth import authenticate
 from django.db import transaction
-from django.db.models import Avg, Count, Exists, OuterRef, Q
+from django.db.models import Avg, Count, Exists, F, OuterRef, Q, Window
+from django.db.models.functions import TruncDate
+from django.db.models.functions.window import RowNumber
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from .serializers import (
     AssessmentSerializer,
     AssessmentProblemSerializer,
+    ActivityHeatmapDaySerializer,
+    ConfidenceTrendDaySerializer,
     ProblemSerializer,
+    PatternStrengthResponseSerializer,
+    RecommendationSerializer,
     RegisterSerializer,
     UserProblemSerializer,
     UserSerializer,
@@ -621,8 +627,16 @@ def dashboard(request):
         for totals in pattern_totals.values()
     ]
     patterns.sort(key=lambda item: item['average_confidence'])
-    strongest_pattern = max(patterns, key=lambda item: item['average_confidence'], default=None)
-    weakest_pattern = min(patterns, key=lambda item: item['average_confidence'], default=None)
+    strongest_pattern = max(
+        patterns,
+        key=lambda item: (item['average_confidence'], item['name'].lower()),
+        default=None,
+    ) if len(patterns) >= 2 else None
+    weakest_pattern = min(
+        patterns,
+        key=lambda item: (item['average_confidence'], item['name'].lower()),
+        default=None,
+    ) if len(patterns) >= 2 else None
 
     today = timezone.localdate(now)
     streak = 0
@@ -648,6 +662,321 @@ def dashboard(request):
         'revision_completion_rate': completion_rate,
         'completion_window_days': 7,
     })
+
+
+def _pattern_trends(user):
+    reviews_by_pattern = {}
+    reviews = ReviewEvent.objects.filter(
+        user=user,
+        problem__pattern__isnull=False,
+    ).annotate(
+        review_rank=Window(
+            expression=RowNumber(),
+            partition_by=[F('problem__pattern_id')],
+            order_by=[F('reviewed_at').desc(), F('id').desc()],
+        ),
+    ).filter(
+        review_rank__lte=6,
+    ).order_by(
+        'problem__pattern_id',
+        'review_rank',
+    ).values_list(
+        'problem__pattern_id',
+        'confidence',
+    )
+    for pattern_id, confidence in reviews.iterator():
+        reviews_by_pattern.setdefault(pattern_id, []).append(confidence)
+
+    trends = {}
+    for pattern_id, ratings in reviews_by_pattern.items():
+        if len(ratings) < 6:
+            trends[pattern_id] = 'steady'
+            continue
+        recent_average = sum(ratings[:3]) / 3
+        previous_average = sum(ratings[3:6]) / 3
+        if recent_average - previous_average > 0.15:
+            trends[pattern_id] = 'improving'
+        elif previous_average - recent_average > 0.15:
+            trends[pattern_id] = 'declining'
+        else:
+            trends[pattern_id] = 'steady'
+    return trends
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def pattern_strength(request):
+    user_progress = UserProblemProgress.objects.filter(
+        user=request.user,
+        is_tracked=True,
+    )
+    pattern_rows = list(Pattern.objects.annotate(
+        total_problems=Count(
+            'problems__sm2_progress',
+            filter=Q(
+                problems__sm2_progress__user=request.user,
+                problems__sm2_progress__is_tracked=True,
+            ),
+            distinct=True,
+        ),
+        average_confidence=Avg(
+            'problems__sm2_progress__confidence_rating',
+            filter=Q(
+                problems__sm2_progress__user=request.user,
+                problems__sm2_progress__is_tracked=True,
+                problems__sm2_progress__confidence_rating__gt=0,
+            ),
+        ),
+    ).order_by('p_name'))
+    summary = user_progress.aggregate(
+        total_problems=Count('id'),
+        average_confidence=Avg('confidence_rating', filter=Q(confidence_rating__gt=0)),
+    )
+    trends = _pattern_trends(request.user)
+    patterns = [
+        {
+            'pattern_id': pattern.id,
+            'pattern_name': pattern.p_name,
+            'average_confidence': round(pattern.average_confidence, 2) if pattern.average_confidence is not None else None,
+            'total_problems': pattern.total_problems,
+            'trend': trends.get(pattern.id, 'steady'),
+        }
+        for pattern in pattern_rows
+    ]
+    ranked_patterns = [pattern for pattern in patterns if pattern['average_confidence'] is not None]
+    ranked_patterns.sort(key=lambda pattern: (-pattern['average_confidence'], pattern['pattern_name'].lower()))
+    response_data = {
+        'patterns': patterns,
+        'strongest': ranked_patterns[:3],
+        'weakest': sorted(
+            ranked_patterns,
+            key=lambda pattern: (pattern['average_confidence'], pattern['pattern_name'].lower()),
+        )[:3],
+        'summary': {
+            'total_problems': summary['total_problems'],
+            'average_confidence': round(summary['average_confidence'], 2) if summary['average_confidence'] is not None else None,
+        },
+    }
+    return Response(PatternStrengthResponseSerializer(response_data).data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def recommendations(request):
+    user = request.user
+    now = timezone.now()
+    cutoff = now - timedelta(days=7)
+    pattern_rows = list(Pattern.objects.annotate(
+        total_problems=Count(
+            'problems__sm2_progress',
+            filter=Q(
+                problems__sm2_progress__user=user,
+                problems__sm2_progress__is_tracked=True,
+            ),
+            distinct=True,
+        ),
+        average_confidence=Avg(
+            'problems__sm2_progress__confidence_rating',
+            filter=Q(
+                problems__sm2_progress__user=user,
+                problems__sm2_progress__is_tracked=True,
+                problems__sm2_progress__confidence_rating__gt=0,
+            ),
+        ),
+    ).order_by('p_name'))
+    pattern_by_id = {pattern.id: pattern for pattern in pattern_rows}
+    tracked_progress = list(UserProblemProgress.objects.filter(
+        user=user,
+        is_tracked=True,
+    ).select_related('problem'))
+    progress_by_pattern = {}
+    for progress in tracked_progress:
+        pattern_id = progress.problem.pattern_id
+        if pattern_id is not None:
+            progress_by_pattern.setdefault(pattern_id, []).append(progress)
+
+    recommendations_list = []
+
+    def add_recommendation(kind, title, description, priority, pattern_id, pattern_name, problem_ids, action_label):
+        recommendations_list.append({
+            'type': kind,
+            'title': title,
+            'description': description,
+            'priority': priority,
+            'pattern_id': pattern_id,
+            'pattern_name': pattern_name,
+            'problem_ids': problem_ids,
+            'action_label': action_label,
+        })
+
+    for pattern in pattern_rows:
+        if pattern.average_confidence is not None and pattern.average_confidence < 3:
+            ids = [
+                progress.problem_id
+                for progress in progress_by_pattern.get(pattern.id, [])
+                if 0 < progress.confidence_rating < 3
+            ][:5]
+            if ids:
+                add_recommendation(
+                    'weak_pattern',
+                    f'Review {pattern.p_name}',
+                    f'Your average confidence is {pattern.average_confidence:.1f}/5 for this pattern.',
+                    2,
+                    pattern.id,
+                    pattern.p_name,
+                    ids,
+                    'Review weak problems',
+                )
+
+    overdue_by_pattern = {}
+    for progress in UserProblemProgress.objects.filter(
+        user=user,
+        is_tracked=True,
+        next_review_date__lt=cutoff,
+    ).select_related('problem__pattern').order_by('next_review_date'):
+        pattern = progress.problem.pattern
+        pattern_id = pattern.id if pattern else None
+        pattern_name = pattern.p_name if pattern else 'Uncategorized'
+        group = overdue_by_pattern.setdefault((pattern_id, pattern_name), [])
+        group.append(progress.problem_id)
+    for (pattern_id, pattern_name), problem_ids in overdue_by_pattern.items():
+        add_recommendation(
+            'overdue',
+            f'Review overdue {pattern_name} problems',
+            f'{len(problem_ids)} problem{"" if len(problem_ids) == 1 else "s"} overdue by more than 7 days.',
+            1,
+            pattern_id,
+            pattern_name,
+            problem_ids[:5],
+            'Review overdue problems',
+        )
+
+    trends = _pattern_trends(user)
+    for pattern_id, trend in trends.items():
+        if trend == 'declining':
+            pattern = pattern_by_id.get(pattern_id)
+            if pattern is None:
+                continue
+            ids = [progress.problem_id for progress in progress_by_pattern.get(pattern_id, [])][:5]
+            if ids:
+                add_recommendation(
+                    'declining',
+                    f'Confidence is declining in {pattern.p_name}',
+                    'Your last 3 reviews averaged lower than the 3 before them.',
+                    2,
+                    pattern.id,
+                    pattern.p_name,
+                    ids,
+                    'Practice this pattern',
+                )
+
+    tracked_problem = UserProblemProgress.objects.filter(
+        user=user,
+        problem_id=OuterRef('pk'),
+        is_tracked=True,
+    )
+    unstarted_problem_ids = {}
+    for pattern_id, problem_id in Problem.objects.filter(
+        pattern_id__isnull=False,
+    ).annotate(
+        is_tracked=Exists(tracked_problem),
+    ).filter(
+        is_tracked=False,
+    ).order_by('id').values_list('pattern_id', 'id'):
+        problem_ids = unstarted_problem_ids.setdefault(pattern_id, [])
+        if len(problem_ids) < 5:
+            problem_ids.append(problem_id)
+
+    for pattern in pattern_rows:
+        if pattern.total_problems != 0:
+            continue
+        problem_ids = unstarted_problem_ids.get(pattern.id, [])
+        if problem_ids:
+            add_recommendation(
+                'not_started',
+                f'Start {pattern.p_name}',
+                f'You have not added any {pattern.p_name} problems to your review plan.',
+                3,
+                pattern.id,
+                pattern.p_name,
+                problem_ids,
+                'Explore these problems',
+            )
+
+    all_problem_ids = {
+        problem_id
+        for recommendation in recommendations_list
+        for problem_id in recommendation['problem_ids']
+    }
+    problems_by_id = {
+        problem['id']: problem
+        for problem in Problem.objects.filter(id__in=all_problem_ids).values('id', 'title', 'difficulty', 'link')
+    }
+    for recommendation in recommendations_list:
+        recommendation['problems'] = [
+            problems_by_id[problem_id]
+            for problem_id in recommendation['problem_ids']
+            if problem_id in problems_by_id
+        ]
+
+    recommendations_list.sort(key=lambda item: (item['priority'], item['title'].lower()))
+    return Response(RecommendationSerializer(recommendations_list, many=True).data)
+
+
+def _daily_review_window(days):
+    today = timezone.localdate()
+    first_day = today - timedelta(days=days - 1)
+    start = timezone.make_aware(datetime.combine(first_day, time.min), timezone.get_current_timezone())
+    end = timezone.make_aware(datetime.combine(today + timedelta(days=1), time.min), timezone.get_current_timezone())
+    return first_day, today, start, end
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def activity_heatmap(request):
+    first_day, today, start, end = _daily_review_window(90)
+    counts = {
+        row['review_day']: row['count']
+        for row in ReviewEvent.objects.filter(
+            user=request.user,
+            reviewed_at__gte=start,
+            reviewed_at__lt=end,
+        ).annotate(review_day=TruncDate('reviewed_at')).values('review_day').annotate(
+            count=Count('id'),
+        ).order_by('review_day')
+    }
+    data = [
+        {'date': first_day + timedelta(days=offset), 'count': counts.get(first_day + timedelta(days=offset), 0)}
+        for offset in range((today - first_day).days + 1)
+    ]
+    return Response(ActivityHeatmapDaySerializer(data, many=True).data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def confidence_trend(request):
+    first_day, today, start, end = _daily_review_window(30)
+    averages = {
+        row['review_day']: row
+        for row in ReviewEvent.objects.filter(
+            user=request.user,
+            reviewed_at__gte=start,
+            reviewed_at__lt=end,
+        ).annotate(review_day=TruncDate('reviewed_at')).values('review_day').annotate(
+            average_confidence=Avg('confidence'),
+            review_count=Count('id'),
+        ).order_by('review_day')
+    }
+    data = []
+    for offset in range((today - first_day).days + 1):
+        review_day = first_day + timedelta(days=offset)
+        row = averages.get(review_day)
+        data.append({
+            'date': review_day,
+            'average_confidence': round(row['average_confidence'], 2) if row else None,
+            'review_count': row['review_count'] if row else 0,
+        })
+    return Response(ConfidenceTrendDaySerializer(data, many=True).data)
 
 
 @api_view(['POST'])

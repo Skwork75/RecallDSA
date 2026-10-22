@@ -1,0 +1,396 @@
+:root {
+  --chart-grid: #e5eaf2;
+}
+
+:root[data-theme='dark'] {
+  --chart-grid: #2c3850;
+}
+
+.analytics-content {
+  margin: 0 auto;
+  max-width: 1320px;
+  padding: 54px clamp(24px, 4vw, 64px) 80px;
+}
+
+.analytics-intro {
+  margin-bottom: 32px;
+}
+
+.analytics-intro h1 {
+  font-family: Fraunces, Georgia, serif;
+  font-size: clamp(38px, 5vw, 58px);
+  letter-spacing: -.05em;
+  line-height: 1.05;
+  margin: 0;
+}
+
+.analytics-intro > p:last-child {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.7;
+  margin: 14px 0 0;
+  max-width: 620px;
+}
+
+.analytics-summary {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 18px;
+}
+
+.analytics-summary article,
+.analytics-panel,
+.recommendation-card {
+  background: var(--white);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+.analytics-summary article {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-height: 98px;
+  padding: 18px 20px;
+}
+
+.analytics-summary article span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.analytics-summary article strong {
+  font-family: Fraunces, Georgia, serif;
+  font-size: 27px;
+}
+
+.analytics-chart-grid {
+  align-items: stretch;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.analytics-panel {
+  min-width: 0;
+  padding: 22px;
+}
+
+.analytics-panel-wide {
+  grid-column: 1 / -1;
+}
+
+.analytics-panel-heading {
+  align-items: end;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+}
+
+.analytics-panel-heading .eyebrow,
+.analytics-section-heading .eyebrow {
+  margin-bottom: 7px;
+}
+
+.analytics-panel-heading h2,
+.analytics-section-heading h2 {
+  font-family: Fraunces, Georgia, serif;
+  font-size: 23px;
+  letter-spacing: -.035em;
+  margin: 0;
+}
+
+.analytics-chart {
+  min-width: 0;
+  width: 100%;
+}
+
+.analytics-donut-layout {
+  align-items: center;
+  display: grid;
+  gap: 15px;
+  grid-template-columns: minmax(150px, 1fr) minmax(120px, 1fr);
+}
+
+.analytics-legend {
+  display: grid;
+  gap: 11px;
+  list-style: none;
+  margin: 0;
+  max-height: 250px;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.analytics-legend li {
+  align-items: center;
+  color: var(--muted);
+  display: grid;
+  font-size: 11px;
+  gap: 8px;
+  grid-template-columns: 9px minmax(0, 1fr) auto;
+}
+
+.analytics-legend li > span:first-child {
+  border-radius: 50%;
+  height: 8px;
+  width: 8px;
+}
+
+.analytics-legend strong {
+  color: var(--ink);
+}
+
+.analytics-heatmap-summary {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 11px;
+  justify-content: space-between;
+  margin: 2px 0 12px;
+}
+
+.heatmap-scale {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+}
+
+.heatmap-scale i {
+  border-radius: 2px;
+  height: 11px;
+  width: 11px;
+}
+
+.analytics-heatmap {
+  overflow-x: auto;
+  padding-bottom: 5px;
+}
+
+.analytics-heatmap .react-calendar-heatmap {
+  min-width: 620px;
+}
+
+.react-calendar-heatmap text {
+  fill: var(--muted);
+  font-size: 9px;
+}
+
+.react-calendar-heatmap .color-empty,
+.heatmap-level-0 {
+  fill: var(--line);
+  background: var(--line);
+}
+
+.react-calendar-heatmap .heatmap-level-1,
+.heatmap-scale .heatmap-level-1 {
+  fill: #4f8f7b;
+  background: #4f8f7b;
+}
+
+.react-calendar-heatmap .heatmap-level-2,
+.heatmap-scale .heatmap-level-2 {
+  fill: #37a981;
+  background: #37a981;
+}
+
+.react-calendar-heatmap .heatmap-level-3,
+.heatmap-scale .heatmap-level-3 {
+  fill: #48c69b;
+  background: #48c69b;
+}
+
+.react-calendar-heatmap .heatmap-level-4,
+.heatmap-scale .heatmap-level-4 {
+  fill: #82e1b5;
+  background: #82e1b5;
+}
+
+.analytics-recommendations {
+  margin-top: 42px;
+}
+
+.analytics-section-heading {
+  align-items: end;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding-bottom: 15px;
+}
+
+.analytics-section-heading > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.recommendation-list {
+  display: grid;
+  gap: 10px;
+}
+
+.recommendation-card {
+  align-items: center;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  padding: 18px;
+}
+
+.recommendation-priority {
+  align-items: center;
+  background: var(--lime);
+  border-radius: 50%;
+  color: var(--green);
+  display: flex;
+  font-size: 13px;
+  font-weight: 700;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+}
+
+.priority-1 {
+  background: #ffe9e6;
+  color: #c4574b;
+}
+
+.recommendation-type {
+  color: var(--green);
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: .1em;
+}
+
+.recommendation-copy h3 {
+  font-size: 15px;
+  margin: 4px 0;
+}
+
+.recommendation-copy p,
+.recommendation-copy small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.recommendation-copy small {
+  display: block;
+  margin-top: 5px;
+}
+
+.analytics-action-button {
+  align-items: center;
+  background: var(--green);
+  border: 0;
+  color: #fff;
+  display: flex;
+  font-size: 11px;
+  font-weight: 700;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 11px 13px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.analytics-action-button:hover {
+  filter: brightness(1.08);
+}
+
+.analytics-empty,
+.analytics-state {
+  align-items: center;
+  background: color-mix(in srgb, var(--white) 65%, transparent);
+  border: 1px dashed var(--line);
+  color: var(--muted);
+  display: flex;
+  font-size: 12px;
+  justify-content: center;
+  line-height: 1.6;
+  min-height: 145px;
+  padding: 24px;
+  text-align: center;
+}
+
+.analytics-state {
+  border-style: solid;
+  margin-bottom: 20px;
+}
+
+.analytics-error {
+  border-color: #c4574b;
+  color: #c4574b;
+}
+
+:root[data-theme='dark'] .priority-1 {
+  background: #4b2c32;
+  color: #ffaaa2;
+}
+
+@media (max-width: 900px) {
+  .analytics-chart-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .analytics-panel-wide {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .analytics-content {
+    padding: 34px 18px 54px;
+  }
+
+  .analytics-summary {
+    gap: 8px;
+  }
+
+  .analytics-summary article {
+    min-height: 88px;
+    padding: 13px;
+  }
+
+  .analytics-summary article span {
+    font-size: 9px;
+  }
+
+  .analytics-summary article strong {
+    font-size: 21px;
+  }
+
+  .analytics-panel {
+    padding: 16px 12px;
+  }
+
+  .analytics-donut-layout {
+    grid-template-columns: minmax(120px, 1fr) minmax(110px, 1fr);
+  }
+
+  .analytics-heatmap-summary {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 9px;
+  }
+
+  .recommendation-card {
+    align-items: start;
+    grid-template-columns: 30px minmax(0, 1fr);
+    padding: 14px;
+  }
+
+  .recommendation-priority {
+    height: 28px;
+    width: 28px;
+  }
+
+  .analytics-action-button {
+    grid-column: 2;
+    width: fit-content;
+  }
+}

@@ -25,5 +25,9 @@ urlpatterns = [
     path('assessments/<int:assessment_id>/submit-answer/', views.submit_assessment_answer, name='submit-assessment-answer'),
     path('assessments/<int:assessment_id>/complete/', views.finish_assessment, name='complete-assessment'),
     path('dashboard/', views.dashboard, name='dashboard'),
+    path('analytics/pattern-strength/', views.pattern_strength, name='pattern-strength'),
+    path('analytics/recommendations/', views.recommendations, name='analytics-recommendations'),
+    path('analytics/activity-heatmap/', views.activity_heatmap, name='activity-heatmap'),
+    path('analytics/confidence-trend/', views.confidence_trend, name='confidence-trend'),
     path('problems/<int:problem_id>/solve/', views.mark_problem_solved, name='mark-problem-solved'),
 ]

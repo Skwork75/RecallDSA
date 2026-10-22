@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import toast, { Toaster } from 'react-hot-toast'
 import { useAuth } from './context/useAuth.js'
 import { SheetDetail, SheetExplorer } from './SheetPages.jsx'
 import { AssessmentCard, AssessmentHistory, AssessmentView } from './AssessmentPages.jsx'
+
+const AnalyticsPage = lazy(() => import('./AnalyticsPage.jsx'))
 
 const difficultyStyles = { Easy: 'easy', Medium: 'medium', Hard: 'hard' }
 
@@ -152,7 +154,14 @@ function Dashboard({ theme, onToggle }) {
   useEffect(() => {
     const fetchQuestions = async () => {
       try {
-        setQuestions(await authenticatedRequest('/api/home/'))
+        const problemList = await authenticatedRequest('/api/home/')
+        setQuestions(problemList)
+        const reviewId = Number(new URLSearchParams(window.location.search).get('review'))
+        const problemToReview = problemList.find((question) => question.id === reviewId)
+        if (problemToReview) {
+          setReviewProblem(problemToReview)
+          window.history.replaceState({}, '', window.location.pathname)
+        }
       } catch (fetchError) { setError(fetchError.message) } finally { setLoading(false) }
     }
     fetchQuestions()
@@ -223,6 +232,7 @@ function Dashboard({ theme, onToggle }) {
           <a className="active" href="#overview"><span aria-hidden="true">▦</span>Overview</a>
           <a href="#library"><span aria-hidden="true">⌘</span>Problems</a>
           <a href="#today-revisions"><span aria-hidden="true">◷</span>Review queue<span className="workspace-nav-count">{todayRevisions.length}</span></a>
+          <a href="/analytics"><span aria-hidden="true">▥</span>Analytics</a>
           <a href="/sheets"><span aria-hidden="true">▤</span>DSA sheets</a>
         </nav>
         <div className="sidebar-goal">
@@ -242,14 +252,14 @@ function Dashboard({ theme, onToggle }) {
           <div className="metric-card metric-featured"><span className="metric-icon">◎</span><strong>{dashboardMetrics?.problems_solved ?? '—'}</strong><small>problems solved</small><div className="metric-line" /></div>
           <div className="metric-card"><span className="metric-icon">◌</span><strong>{dashboardMetrics?.problems_due_today ?? '—'}</strong><small>problems due today</small><a href="#today-revisions">Start a review <span>↗</span></a></div>
           <div className="metric-card"><span className="metric-icon">✦</span><strong>{dashboardMetrics ? `${dashboardMetrics.revision_streak} day${dashboardMetrics.revision_streak === 1 ? '' : 's'}` : '—'}</strong><small>revision streak</small></div>
-          <div className="metric-card pattern-metric"><span className="metric-icon">↗</span><strong>{dashboardMetrics?.strongest_pattern?.name ?? '—'}</strong><small>{dashboardMetrics?.strongest_pattern ? `strongest · ${dashboardMetrics.strongest_pattern.average_confidence}/5 confidence` : 'strongest pattern'}</small></div>
-          <div className="metric-card pattern-metric"><span className="metric-icon">⌁</span><strong>{dashboardMetrics?.weakest_pattern?.name ?? '—'}</strong><small>{dashboardMetrics?.weakest_pattern ? `weakest · ${dashboardMetrics.weakest_pattern.average_confidence}/5 confidence` : 'weakest pattern'}</small></div>
+          <div className="metric-card pattern-metric"><span className="metric-icon">↗</span><strong>{dashboardMetrics?.strongest_pattern?.name ?? '—'}</strong><small>{dashboardMetrics?.strongest_pattern ? `strongest · ${dashboardMetrics.strongest_pattern.average_confidence}/5 confidence` : dashboardMetrics?.pattern_analysis?.length < 2 ? 'Add problems from more patterns to see analysis' : 'strongest pattern'}</small></div>
+          <div className="metric-card pattern-metric"><span className="metric-icon">⌁</span><strong>{dashboardMetrics?.weakest_pattern?.name ?? '—'}</strong><small>{dashboardMetrics?.weakest_pattern ? `weakest · ${dashboardMetrics.weakest_pattern.average_confidence}/5 confidence` : dashboardMetrics?.pattern_analysis?.length < 2 ? 'Add problems from more patterns to see analysis' : 'weakest pattern'}</small></div>
           <div className="metric-card"><span className="metric-icon">✓</span><strong>{dashboardMetrics ? `${dashboardMetrics.revision_completion_rate}%` : '—'}</strong><small>revision completion · last {dashboardMetrics?.completion_window_days ?? 7} days</small><div className="progress-track"><span style={{ width: `${dashboardMetrics?.revision_completion_rate ?? 0}%` }} /></div></div>
         </section>
         <section className="pattern-analysis-section">
           <div className="section-heading"><div><p className="eyebrow">WEAK PATTERN ANALYSIS</p><h2>Confidence by pattern</h2></div><span className="result-count">1 to 5 confidence</span></div>
           <p className="analysis-explanation">Average confidence across recorded reviews. Existing progress without review history uses its latest saved rating.</p>
-          {!dashboardMetrics?.pattern_analysis?.length ? <div className="empty-state">Pattern analysis appears after you review solved problems.</div> : <div className="pattern-analysis-list">{dashboardMetrics.pattern_analysis.map((pattern) => <div className="pattern-analysis-row" key={pattern.id}><div className="pattern-analysis-name"><strong>{pattern.name}</strong><small>{pattern.review_count} rating{pattern.review_count === 1 ? '' : 's'}</small></div><div className="pattern-confidence-track"><span className={pattern.average_confidence <= 2.5 ? 'needs-focus' : ''} style={{ width: `${pattern.average_confidence * 20}%` }} /></div><strong className="pattern-confidence-score">{pattern.average_confidence.toFixed(1)}</strong><span className={`pattern-status ${pattern.average_confidence <= 2.5 ? 'needs-focus' : ''}`}>{pattern.average_confidence <= 2.5 ? 'Needs focus' : 'Steady'}</span></div>)}</div>}
+          {(dashboardMetrics?.pattern_analysis?.length ?? 0) < 2 ? <div className="empty-state">Add problems from more patterns to see analysis</div> : <div className="pattern-analysis-list">{dashboardMetrics.pattern_analysis.map((pattern) => <div className="pattern-analysis-row" key={pattern.id}><div className="pattern-analysis-name"><strong>{pattern.name}</strong><small>{pattern.review_count} rating{pattern.review_count === 1 ? '' : 's'}</small></div><div className="pattern-confidence-track"><span className={pattern.average_confidence <= 2.5 ? 'needs-focus' : ''} style={{ width: `${pattern.average_confidence * 20}%` }} /></div><strong className="pattern-confidence-score">{pattern.average_confidence.toFixed(1)}</strong><span className={`pattern-status ${pattern.average_confidence <= 2.5 ? 'needs-focus' : ''}`}>{pattern.average_confidence <= 2.5 ? 'Needs focus' : 'Steady'}</span></div>)}</div>}
         </section>
         <section className="revision-section" id="today-revisions">
           <div className="section-heading"><div><p className="eyebrow">TODAY'S REVISION</p><h2>{todayRevisions.length === 0 ? 'Nothing due today' : `You have ${todayRevisions.length} problem${todayRevisions.length === 1 ? '' : 's'} to revise.`}</h2></div><span className="result-count">{todayRevisions.length} due</span></div>
@@ -292,6 +302,8 @@ function App() {
           ? <SheetExplorer onToggle={toggleTheme} theme={theme} />
           : path.startsWith('/sheets/')
             ? <SheetDetail onToggle={toggleTheme} slug={decodeURIComponent(path.slice('/sheets/'.length))} theme={theme} />
+            : path === '/analytics'
+              ? <Suspense fallback={<div className="loading-screen"><Logo /><span>Loading analytics…</span></div>}><AnalyticsPage onToggle={toggleTheme} theme={theme} /></Suspense>
             : path === '/assessments/current'
               ? <AssessmentView />
               : path === '/assessments/history'

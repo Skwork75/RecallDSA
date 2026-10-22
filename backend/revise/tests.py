@@ -264,6 +264,125 @@ class AuthenticationTests(APITestCase):
 		response = self.client.get('/api/dashboard/')
 		self.assertEqual(response.status_code, 401)
 
+	def test_dashboard_uses_distinct_patterns_when_confidence_is_tied(self):
+		user = get_user_model().objects.create_user(username='tie-user')
+		pattern_names = ['Alpha Pattern', 'Zulu Pattern']
+		for index, name in enumerate(pattern_names, start=1):
+			pattern = Pattern.objects.create(p_name=name)
+			problem = Problem.objects.create(
+				title=f'Tied Pattern Problem {index}',
+				leetcode_id=92000 + index,
+				link=f'https://leetcode.com/problems/tied-pattern-{index}/',
+				difficulty='Easy',
+				pattern=pattern,
+			)
+			ReviewEvent.objects.create(user=user, problem=problem, confidence=4)
+
+		self.client.force_authenticate(user=user)
+		response = self.client.get('/api/dashboard/')
+
+		self.assertEqual(response.status_code, 200)
+		self.assertNotEqual(
+			response.json()['strongest_pattern']['name'],
+			response.json()['weakest_pattern']['name'],
+		)
+
+
+class AnalyticsTests(APITestCase):
+	def setUp(self):
+		self.user = get_user_model().objects.create_user(username='analytics-user')
+		self.client.force_authenticate(user=self.user)
+		self.pattern = Pattern.objects.create(p_name='Binary Search')
+		self.unstarted_pattern = Pattern.objects.create(p_name='Graph Traversal')
+		self.problem = Problem.objects.create(
+			title='Search Insert Position',
+			leetcode_id=35,
+			link='https://leetcode.com/problems/search-insert-position/',
+			difficulty='Easy',
+			pattern=self.pattern,
+		)
+		self.second_problem = Problem.objects.create(
+			title='Find First and Last Position',
+			leetcode_id=34,
+			link='https://leetcode.com/problems/find-first-and-last-position-of-element-in-sorted-array/',
+			difficulty='Medium',
+			pattern=self.pattern,
+		)
+		self.unstarted_problem = Problem.objects.create(
+			title='Number of Islands',
+			leetcode_id=200,
+			link='https://leetcode.com/problems/number-of-islands/',
+			difficulty='Medium',
+			pattern=self.unstarted_pattern,
+		)
+
+	def test_analytics_endpoints_aggregate_user_data_and_recommend_actions(self):
+		now = timezone.now()
+		UserProblemProgress.objects.create(
+			user=self.user,
+			problem=self.problem,
+			confidence_rating=2,
+			next_review_date=now - timedelta(days=8),
+		)
+		UserProblemProgress.objects.create(
+			user=self.user,
+			problem=self.second_problem,
+			confidence_rating=1,
+			next_review_date=now + timedelta(days=2),
+		)
+		for days_ago, confidence in [(12, 5), (11, 4), (10, 4), (2, 2), (1, 1), (0, 1)]:
+			ReviewEvent.objects.create(
+				user=self.user,
+				problem=self.problem,
+				confidence=confidence,
+				reviewed_at=now - timedelta(days=days_ago),
+			)
+
+		strength = self.client.get('/api/analytics/pattern-strength/')
+		self.assertEqual(strength.status_code, 200)
+		pattern_data = next(item for item in strength.json()['patterns'] if item['pattern_id'] == self.pattern.id)
+		self.assertEqual(pattern_data['average_confidence'], 1.5)
+		self.assertEqual(pattern_data['total_problems'], 2)
+		self.assertEqual(pattern_data['trend'], 'declining')
+		self.assertEqual(len(strength.json()['strongest']), 1)
+		self.assertEqual(len(strength.json()['weakest']), 1)
+
+		recommendations = self.client.get('/api/analytics/recommendations/')
+		self.assertEqual(recommendations.status_code, 200)
+		recommendation_types = {item['type'] for item in recommendations.json()}
+		self.assertEqual(recommendation_types, {'weak_pattern', 'overdue', 'declining', 'not_started'})
+		overdue_item = next(item for item in recommendations.json() if item['type'] == 'overdue')
+		self.assertEqual(overdue_item['problem_ids'], [self.problem.id])
+		not_started_item = next(
+			item for item in recommendations.json()
+			if item['type'] == 'not_started' and item['pattern_id'] == self.unstarted_pattern.id
+		)
+		self.assertEqual(not_started_item['problem_ids'], [self.unstarted_problem.id], recommendations.json())
+
+		activity = self.client.get('/api/analytics/activity-heatmap/')
+		self.assertEqual(activity.status_code, 200)
+		self.assertEqual(len(activity.json()), 90)
+		self.assertEqual(activity.json()[-1]['count'], 1)
+
+		confidence = self.client.get('/api/analytics/confidence-trend/')
+		self.assertEqual(confidence.status_code, 200)
+		self.assertEqual(len(confidence.json()), 30)
+		today = timezone.localdate()
+		today_data = next(item for item in confidence.json() if item['date'] == today.isoformat())
+		self.assertEqual(today_data['average_confidence'], 1)
+		self.assertEqual(today_data['review_count'], 1)
+
+	def test_analytics_endpoints_require_authentication(self):
+		self.client.force_authenticate(user=None)
+		for endpoint in (
+			'/api/analytics/pattern-strength/',
+			'/api/analytics/recommendations/',
+			'/api/analytics/activity-heatmap/',
+			'/api/analytics/confidence-trend/',
+		):
+			with self.subTest(endpoint=endpoint):
+				self.assertEqual(self.client.get(endpoint).status_code, 401)
+
 
 class SM2CalculatorTests(APITestCase):
 	def test_first_review_uses_initial_interval(self):
