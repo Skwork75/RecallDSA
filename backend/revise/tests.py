@@ -264,6 +264,92 @@ class AuthenticationTests(APITestCase):
 		response = self.client.get('/api/dashboard/')
 		self.assertEqual(response.status_code, 401)
 
+	def test_dashboard_stats_returns_aggregated_metrics_and_grace_day_streaks(self):
+		user = get_user_model().objects.create_user(username='stats-user')
+		first_pattern = Pattern.objects.create(p_name='Arrays')
+		second_pattern = Pattern.objects.create(p_name='Graphs')
+		reviewed_problem = Problem.objects.create(
+			title='Two Sum',
+			leetcode_id=930001,
+			link='https://leetcode.com/problems/two-sum/',
+			difficulty='Easy',
+			pattern=first_pattern,
+		)
+		pending_problem = Problem.objects.create(
+			title='Number of Islands',
+			leetcode_id=930002,
+			link='https://leetcode.com/problems/number-of-islands/',
+			difficulty='Medium',
+			pattern=second_pattern,
+		)
+		now = timezone.now()
+		today = timezone.localdate(now)
+		UserProblemProgress.objects.create(
+			user=user,
+			problem=reviewed_problem,
+			is_tracked=True,
+			next_review_date=now + timedelta(days=10),
+		)
+		UserProblemProgress.objects.create(
+			user=user,
+			problem=pending_problem,
+			is_tracked=True,
+			next_review_date=now,
+		)
+		ReviewEvent.objects.create(
+			user=user,
+			problem=reviewed_problem,
+			confidence=4,
+			scheduled_for=now - timedelta(days=2),
+			reviewed_at=now,
+		)
+		ReviewEvent.objects.create(
+			user=user,
+			problem=pending_problem,
+			confidence=2,
+			reviewed_at=now - timedelta(days=1),
+		)
+		ReviewEvent.objects.create(
+			user=user,
+			problem=reviewed_problem,
+			confidence=3,
+			reviewed_at=now - timedelta(days=3),
+		)
+
+		self.client.force_authenticate(user=user)
+		response = self.client.get('/api/dashboard/stats/')
+		payload = response.json()
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(payload['total_problems_tracked'], 2)
+		self.assertEqual(payload['problems_due_today'], 1)
+		self.assertEqual(payload['problems_due_this_week'], 1)
+		self.assertEqual(payload['current_streak'], 3)
+		self.assertEqual(payload['longest_streak'], 3)
+		self.assertEqual(payload['revision_completion_7days'], 75)
+		self.assertEqual(payload['total_reviews_done'], 3)
+		self.assertEqual(payload['avg_confidence'], 3)
+		self.assertEqual(payload['patterns_covered'], 2)
+		self.assertEqual(payload['this_week_reviewed'], 3)
+		self.assertEqual(payload['onboarding_status'], 'active')
+		self.assertFalse(payload['has_leetcode_connected'])
+		self.assertEqual(len(payload['activity_last_90days']), 90)
+		self.assertEqual(payload['activity_last_90days'][-1]['date'], today.isoformat())
+
+	def test_dashboard_stats_reports_empty_user_as_new_and_requires_authentication(self):
+		response = self.client.get('/api/dashboard/stats/')
+		self.assertEqual(response.status_code, 401)
+
+		user = get_user_model().objects.create_user(username='new-stats-user')
+		self.client.force_authenticate(user=user)
+		response = self.client.get('/api/dashboard/stats/')
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.json()['onboarding_status'], 'new')
+		self.assertEqual(response.json()['revision_completion_7days'], 0)
+		self.assertIsNone(response.json()['avg_confidence'])
+		self.assertEqual(response.json()['activity_last_90days'][-1]['count'], 0)
+
 	def test_dashboard_uses_distinct_patterns_when_confidence_is_tied(self):
 		user = get_user_model().objects.create_user(username='tie-user')
 		pattern_names = ['Alpha Pattern', 'Zulu Pattern']

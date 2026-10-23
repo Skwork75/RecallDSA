@@ -1,7 +1,7 @@
 from datetime import datetime, time, timedelta
 from django.contrib.auth import authenticate
 from django.db import transaction
-from django.db.models import Avg, Count, Exists, F, OuterRef, Q, Window
+from django.db.models import Avg, Count, Exists, F, Min, OuterRef, Q, Window
 from django.db.models.functions import TruncDate
 from django.db.models.functions.window import RowNumber
 from rest_framework.decorators import api_view, permission_classes
@@ -441,6 +441,159 @@ def today_revisions(request):
     return Response(UserProblemSerializer(due_items, many=True).data)
 
 
+def _review_streaks(review_dates, today):
+    ordered_dates = sorted(set(review_dates))
+    if not ordered_dates:
+        return 0, 0
+
+    longest = current_run = 1
+    for previous, current in zip(ordered_dates, ordered_dates[1:]):
+        if (current - previous).days <= 2:
+            current_run += 1
+        else:
+            current_run = 1
+        longest = max(longest, current_run)
+
+    current_streak = 0
+    if (today - ordered_dates[-1]).days <= 2:
+        current_streak = 1
+        for previous, current in zip(reversed(ordered_dates[:-1]), reversed(ordered_dates[1:])):
+            if (current - previous).days > 2:
+                break
+            current_streak += 1
+
+    return current_streak, longest
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def dashboard_stats(request):
+    user = request.user
+    now = timezone.now()
+    today = timezone.localdate(now)
+    week_start_date = today - timedelta(days=today.weekday())
+    week_end_date = week_start_date + timedelta(days=7)
+    review_window_start = timezone.make_aware(
+        datetime.combine(today - timedelta(days=6), time.min),
+        timezone.get_current_timezone(),
+    )
+    review_window_end = timezone.make_aware(
+        datetime.combine(today + timedelta(days=1), time.min),
+        timezone.get_current_timezone(),
+    )
+    week_start = timezone.make_aware(
+        datetime.combine(week_start_date, time.min),
+        timezone.get_current_timezone(),
+    )
+    week_end = timezone.make_aware(
+        datetime.combine(week_end_date, time.min),
+        timezone.get_current_timezone(),
+    )
+
+    tracked = UserProblemProgress.objects.filter(user=user, is_tracked=True)
+    tracked_metrics = tracked.aggregate(
+        total=Count('id'),
+        due_today=Count('id', filter=Q(next_review_date__date__lte=today)),
+        due_this_week=Count('id', filter=Q(next_review_date__date__lt=week_end_date)),
+        patterns=Count(
+            'problem__pattern_id',
+            filter=Q(problem__pattern_id__isnull=False),
+            distinct=True,
+        ),
+        next_review=Min('next_review_date', filter=Q(next_review_date__gt=now)),
+    )
+    review_events = ReviewEvent.objects.filter(user=user)
+    review_metrics = review_events.aggregate(
+        total=Count('id'),
+        average=Avg('confidence'),
+        recent=Count('id', filter=Q(
+            reviewed_at__gte=review_window_start,
+            reviewed_at__lt=review_window_end,
+        )),
+        this_week=Count('id', filter=Q(
+            reviewed_at__gte=week_start,
+            reviewed_at__lt=now,
+        )),
+    )
+    reviews_done = review_metrics['total']
+    recent_reviews_done = review_metrics['recent']
+    outstanding_reviews = tracked.filter(
+        next_review_date__gte=review_window_start,
+        next_review_date__lt=review_window_end,
+    ).count()
+    reviews_due = recent_reviews_done + outstanding_reviews
+
+    activity_start_date = today - timedelta(days=89)
+    activity_start = timezone.make_aware(
+        datetime.combine(activity_start_date, time.min),
+        timezone.get_current_timezone(),
+    )
+    activity = {
+        row['review_day']: row['count']
+        for row in review_events.filter(
+            reviewed_at__gte=activity_start,
+            reviewed_at__lt=review_window_end,
+        ).annotate(
+            review_day=TruncDate('reviewed_at'),
+        ).values('review_day').annotate(
+            count=Count('id'),
+        )
+    }
+    activity_last_90days = [
+        {
+            'date': activity_start_date + timedelta(days=offset),
+            'count': activity.get(activity_start_date + timedelta(days=offset), 0),
+        }
+        for offset in range(90)
+    ]
+    review_dates = review_events.annotate(
+        review_day=TruncDate('reviewed_at'),
+    ).values_list('review_day', flat=True).distinct()
+    current_streak, longest_streak = _review_streaks(review_dates, today)
+
+    tracked_count = tracked_metrics['total']
+    sheets_in_progress = DSASheet.objects.annotate(
+        sheet_problem_count=Count('problems', distinct=True),
+        sheet_tracked_count=Count(
+            'problems',
+            filter=Q(
+                problems__problem__sm2_progress__user=user,
+                problems__problem__sm2_progress__is_tracked=True,
+            ),
+            distinct=True,
+        ),
+    ).filter(
+        sheet_tracked_count__gt=0,
+    ).exclude(
+        sheet_tracked_count=F('sheet_problem_count'),
+    ).count()
+    this_week_solved = UserProblem.objects.filter(
+        user=user,
+        solved=True,
+        created_at__gte=week_start,
+        created_at__lt=week_end,
+    ).count()
+
+    return Response({
+        'total_problems_tracked': tracked_count,
+        'problems_due_today': tracked_metrics['due_today'],
+        'problems_due_this_week': tracked_metrics['due_this_week'],
+        'current_streak': current_streak,
+        'longest_streak': longest_streak,
+        'revision_completion_7days': round(recent_reviews_done * 100 / reviews_due) if reviews_due else 0,
+        'total_reviews_done': reviews_done,
+        'avg_confidence': round(review_metrics['average'], 2) if review_metrics['average'] is not None else None,
+        'patterns_covered': tracked_metrics['patterns'],
+        'sheets_in_progress': sheets_in_progress,
+        'this_week_solved': this_week_solved,
+        'this_week_reviewed': review_metrics['this_week'],
+        'activity_last_90days': activity_last_90days,
+        'has_leetcode_connected': UserProblem.objects.filter(user=user, source='import').exists(),
+        'onboarding_status': 'new' if tracked_count == 0 else 'active' if reviews_done else 'exploring',
+        'next_review_date': tracked_metrics['next_review'],
+    })
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def weekly_assessment(request):
@@ -639,11 +792,7 @@ def dashboard(request):
     ) if len(patterns) >= 2 else None
 
     today = timezone.localdate(now)
-    streak = 0
-    streak_day = today if today in review_dates else today - timedelta(days=1)
-    while streak_day in review_dates:
-        streak += 1
-        streak_day -= timedelta(days=1)
+    streak, _ = _review_streaks(review_dates, today)
 
     due_query = UserProblem.objects.filter(user=user, solved=True, next_revision__lte=now)
     completed_due_reviews = events.filter(scheduled_for__gte=week_start, scheduled_for__lte=now).count()
