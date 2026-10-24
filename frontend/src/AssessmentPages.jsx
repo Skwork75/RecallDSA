@@ -5,16 +5,6 @@ import { formatTime } from './assessmentUtils.js'
 
 const difficultyStyles = { Easy: 'easy', Medium: 'medium', Hard: 'hard' }
 
-function AssessmentHeader({ title = 'Weekly assessment' }) {
-  return (
-    <header className="assessment-page-header">
-      <a href="/" className="sheet-brand-link"><span className="brand-lockup"><span className="brand-mark">R</span><span>Recall<span>DSA</span></span></span></a>
-      <div><a className="sheet-nav-link" href="/">Dashboard</a><a className="sheet-nav-link" href="/assessments/history">Assessment history</a></div>
-      <strong>{title}</strong>
-    </header>
-  )
-}
-
 export function AssessmentResults({ assessment }) {
   const missed = assessment.problems.filter((entry) => entry.status !== 'solved')
 
@@ -176,7 +166,6 @@ export function AssessmentView() {
 
   return (
     <main className="assessment-page">
-      <AssessmentHeader />
       <div className="assessment-page-content">
         {loading && <div className="empty-state">Loading assessment...</div>}
         {error && <div className="empty-state error-state" role="alert">{error}</div>}
@@ -245,7 +234,6 @@ export function AssessmentHistory() {
 
   return (
     <main className="assessment-page">
-      <AssessmentHeader title="Assessment history" />
       <div className="assessment-page-content">
         <div className="section-heading"><div><p className="eyebrow">YOUR PROGRESS</p><h1>Assessment history</h1></div><a className="back-link" href="/">← Dashboard</a></div>
         {loading && <div className="empty-state">Loading assessment history...</div>}

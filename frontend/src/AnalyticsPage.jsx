@@ -25,20 +25,6 @@ const recommendationLabels = {
   not_started: 'NOT STARTED',
 }
 
-function AnalyticsHeader({ theme, onToggle }) {
-  const { user, logout } = useAuth()
-  return (
-    <header className="topbar">
-      <div className="workspace-breadcrumb"><span>Workspace</span><span aria-hidden="true">/</span><strong>Analytics</strong></div>
-      <div className="topbar-actions">
-        <button className="theme-toggle" onClick={onToggle} type="button">{theme === 'dark' ? '☀ Light' : '☾ Night'}</button>
-        <span className="sheet-user">{user?.username}</span>
-        <button className="logout-button" onClick={logout} type="button">Sign out</button>
-      </div>
-    </header>
-  )
-}
-
 function ChartPanel({ title, eyebrow, children, className = '' }) {
   return (
     <section className={`analytics-panel ${className}`}>
@@ -48,7 +34,7 @@ function ChartPanel({ title, eyebrow, children, className = '' }) {
   )
 }
 
-function AnalyticsPage({ theme, onToggle }) {
+function AnalyticsPage() {
   const { authenticatedRequest } = useAuth()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -91,21 +77,8 @@ function AnalyticsPage({ theme, onToggle }) {
   }), [firstHeatmapDay, lastHeatmapDay])
 
   return (
-    <main className="dashboard-page analytics-page">
-      <aside className="workspace-sidebar">
-        <a className="workspace-brand" href="/" aria-label="RecallDSA overview"><span className="brand-lockup"><span className="brand-mark">R</span><span>Recall<span>DSA</span></span></span></a>
-        <p className="workspace-nav-label">Workspace</p>
-        <nav className="workspace-navigation" aria-label="Workspace navigation">
-          <a href="/"><span aria-hidden="true">▦</span>Overview</a>
-          <a href="/#library"><span aria-hidden="true">⌘</span>Problems</a>
-          <a className="active" href="/analytics"><span aria-hidden="true">◷</span>Analytics</a>
-          <a href="/sheets"><span aria-hidden="true">▤</span>DSA sheets</a>
-        </nav>
-        <div className="sidebar-account"><span>{data ? '✓' : 'R'}</span><div><strong>Learning insights</strong><small>Personal workspace</small></div></div>
-      </aside>
-      <div className="workspace-main">
-        <AnalyticsHeader onToggle={onToggle} theme={theme} />
-        <div className="analytics-content">
+    <main className="analytics-page">
+      <div className="analytics-content">
           <section className="analytics-intro">
             <p className="eyebrow">LEARN FROM YOUR REVIEWS</p>
             <h1>Patterns, not guesswork.</h1>
@@ -208,7 +181,7 @@ function AnalyticsPage({ theme, onToggle }) {
                             <p>{recommendation.description}</p>
                             <small>{recommendation.problem_ids.length} suggested problem{recommendation.problem_ids.length === 1 ? '' : 's'} · IDs {recommendation.problem_ids.join(', ')}</small>
                           </div>
-                          {firstProblem && <a className="analytics-action-button" href={`/?review=${firstProblem.id}`}>{recommendation.action_label}<span aria-hidden="true">↗</span></a>}
+                          {firstProblem && <a className="analytics-action-button" href={`/dashboard?review=${firstProblem.id}`}>{recommendation.action_label}<span aria-hidden="true">↗</span></a>}
                         </article>
                       )
                     })}
@@ -217,7 +190,6 @@ function AnalyticsPage({ theme, onToggle }) {
               </section>
             </>
           )}
-        </div>
       </div>
     </main>
   )

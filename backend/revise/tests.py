@@ -87,6 +87,34 @@ class AuthenticationTests(APITestCase):
 		self.assertEqual(len(profile_response.json()['solved_problems']), 1)
 		self.assertEqual(profile_response.json()['solved_problems'][0]['problem']['title'], 'Binary Search')
 
+	def test_tracked_problems_returns_only_the_authenticated_users_tracked_items(self):
+		user = get_user_model().objects.create_user(username='ada', password='secure-password-123')
+		tracked = Problem.objects.create(
+			title='Two Sum',
+			leetcode_id=990001,
+			link='https://leetcode.com/problems/two-sum/',
+			difficulty='Easy',
+		)
+		untracked = Problem.objects.create(
+			title='Binary Search',
+			leetcode_id=990002,
+			link='https://leetcode.com/problems/binary-search/',
+			difficulty='Easy',
+		)
+		UserProblemProgress.objects.create(user=user, problem=tracked)
+		UserProblemProgress.objects.create(user=user, problem=untracked, is_tracked=False)
+		other_user = get_user_model().objects.create_user(username='grace', password='secure-password-123')
+		UserProblemProgress.objects.create(user=other_user, problem=untracked)
+
+		unauthenticated_response = self.client.get('/api/problems/tracked/')
+		self.assertEqual(unauthenticated_response.status_code, 401)
+		self.client.force_authenticate(user=user)
+
+		response = self.client.get('/api/problems/tracked/')
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual([item['problem']['id'] for item in response.json()], [tracked.id])
+
 	def test_review_confidence_schedules_next_revision(self):
 		user = get_user_model().objects.create_user(username='carl', password='secure-password-123')
 		pattern = Pattern.objects.create(p_name='Dynamic Programming')

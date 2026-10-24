@@ -4,6 +4,7 @@ import './index.css'
 import './App.css'
 import './Workspace.css'
 import './Analytics.css'
+import './Navigation.css'
 import App from './App.jsx'
 import { AuthProvider } from './context/AuthContext.jsx'
 

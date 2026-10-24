@@ -95,6 +95,27 @@ def home(request):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+def tracked_problems(request):
+    progress_items = UserProblemProgress.objects.filter(
+        user=request.user,
+        is_tracked=True,
+    ).select_related('problem__pattern').prefetch_related('problem__patterns')
+
+    return Response([
+        {
+            'id': progress.id,
+            'problem': ProblemSerializer(progress.problem).data,
+            'confidence_rating': progress.confidence_rating,
+            'interval': progress.interval,
+            'next_review_date': progress.next_review_date,
+            'last_reviewed_at': progress.last_reviewed_at,
+        }
+        for progress in progress_items
+    ])
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def dsasheets(request):
     sheets = DSASheet.objects.annotate(
         sheet_problem_count=Count('problems', distinct=True),

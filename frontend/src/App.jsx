@@ -1,8 +1,19 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import toast, { Toaster } from 'react-hot-toast'
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from './context/useAuth.js'
 import { SheetDetail, SheetExplorer } from './SheetPages.jsx'
-import { AssessmentHistory, AssessmentView } from './AssessmentPages.jsx'
+import { AssessmentCard, AssessmentHistory, AssessmentView } from './AssessmentPages.jsx'
+import Layout from './components/Layout.jsx'
+import NotFound from './components/NotFound.jsx'
+import ProtectedRoute from './components/ProtectedRoute.jsx'
+import {
+  AssessmentsPage,
+  ProblemDetailPage,
+  ProblemsPage,
+  RevisionsPage,
+  SimpleRoutePage,
+} from './RoutePages.jsx'
 
 const AnalyticsPage = lazy(() => import('./AnalyticsPage.jsx'))
 const DashboardOverview = lazy(() => import('./DashboardOverview.jsx'))
@@ -16,15 +27,6 @@ function Logo() {
 function ThemeToggle({ theme, onToggle }) {
   const isDark = theme === 'dark'
   return <button aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'} className="theme-toggle" onClick={onToggle} title={isDark ? 'Switch to light mode' : 'Switch to dark mode'} type="button"><span aria-hidden="true">{isDark ? '☀' : '☾'}</span><span>{isDark ? 'Light' : 'Night'}</span></button>
-}
-
-function ProfilePanel({ profile, onClose }) {
-  return <div className="profile-popover" role="dialog" aria-label="User profile">
-    <div className="profile-popover-header"><div><p className="eyebrow">YOUR PROFILE</p><h2>{profile.user.username}</h2></div><button className="close-profile" onClick={onClose} type="button" aria-label="Close profile">×</button></div>
-    <p className="profile-email">{profile.user.email || 'No email address added'}</p>
-    <div className="profile-summary"><strong>{profile.solved_problems.length}</strong><span>solved problems</span></div>
-    <div className="solved-list"><p className="eyebrow">SOLVED PROBLEMS</p>{profile.solved_problems.length === 0 ? <p className="profile-empty">No solved problems yet. Mark one from your library.</p> : profile.solved_problems.map((progress) => <div className="solved-item" key={progress.id}><span className="solved-check">✓</span><div><strong>{progress.problem.title}</strong><small>{progress.problem.pattern?.p_name || 'Uncategorized pattern'} · {progress.problem.difficulty}</small></div></div>)}</div>
-  </div>
 }
 
 function ConfidenceModal({ problem, onClose, onSubmit, submitting }) {
@@ -75,14 +77,15 @@ function ConfidenceModal({ problem, onClose, onSubmit, submitting }) {
 
 function AuthScreen({ theme, onToggle }) {
   const { login, register } = useAuth()
-  const [mode, setMode] = useState('login')
+  const location = useLocation()
+  const navigate = useNavigate()
   const [form, setForm] = useState({ username: '', email: '', password: '' })
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const isRegister = mode === 'register'
+  const isRegister = location.pathname === '/signup'
 
   const switchMode = (nextMode) => {
-    setMode(nextMode)
+    navigate(nextMode === 'register' ? '/signup' : '/login')
     setError('')
     setForm({ username: '', email: '', password: '' })
   }
@@ -94,6 +97,10 @@ function AuthScreen({ theme, onToggle }) {
     try {
       if (isRegister) await register(form)
       else await login({ username: form.username, password: form.password })
+      const destination = !isRegister && location.state?.from?.pathname
+        ? location.state.from.pathname
+        : '/dashboard'
+      navigate(destination, { replace: true })
     } catch (submitError) {
       setError(submitError.message)
     } finally {
@@ -119,7 +126,7 @@ function AuthScreen({ theme, onToggle }) {
         <section className="auth-panel">
           <div className="auth-panel-header"><p className="eyebrow">YOUR WORKSPACE</p><h2>{isRegister ? 'Create your account' : 'Welcome back'}</h2><p>{isRegister ? 'Start building a memory for every pattern.' : 'Pick up your practice where you left off.'}</p></div>
           <div className="auth-tabs" role="tablist" aria-label="Authentication options">
-            <button className={mode === 'login' ? 'active' : ''} onClick={() => switchMode('login')} type="button">Sign in</button>
+            <button className={!isRegister ? 'active' : ''} onClick={() => switchMode('login')} type="button">Sign in</button>
             <button className={isRegister ? 'active' : ''} onClick={() => switchMode('register')} type="button">Create account</button>
           </div>
           <form className="auth-form" onSubmit={handleSubmit}>
@@ -137,16 +144,14 @@ function AuthScreen({ theme, onToggle }) {
   )
 }
 
-function Dashboard({ theme, onToggle }) {
-  const { user, logout, authenticatedRequest } = useAuth()
+function Dashboard() {
+  const { user, authenticatedRequest } = useAuth()
   const [questions, setQuestions] = useState([])
   const [query, setQuery] = useState('')
   const [difficulty, setDifficulty] = useState('All')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [solvedIds, setSolvedIds] = useState(new Set())
-  const [profile, setProfile] = useState(null)
-  const [profileOpen, setProfileOpen] = useState(false)
   const [solvingId, setSolvingId] = useState(null)
   const [reviewProblem, setReviewProblem] = useState(null)
   const [todayRevisions, setTodayRevisions] = useState([])
@@ -174,10 +179,9 @@ function Dashboard({ theme, onToggle }) {
   useEffect(() => {
     authenticatedRequest('/api/auth/profile/')
       .then((data) => {
-        setProfile(data)
         setSolvedIds(new Set(data.solved_problems.map((progress) => progress.problem.id)))
       })
-      .catch(() => setProfile({ user, solved_problems: [] }))
+      .catch((requestError) => toast.error(requestError.message))
   }, [authenticatedRequest, user])
 
   useEffect(() => {
@@ -214,15 +218,14 @@ function Dashboard({ theme, onToggle }) {
       const displayDays = Math.max(1, nextInterval || Math.ceil((new Date(response?.next_review_date).getTime() - Date.now()) / 86400000))
       toast.success(`Next review in ${displayDays} ${displayDays === 1 ? 'day' : 'days'}`)
       setSolvedIds((current) => new Set([...current, problemId]))
-      const [updatedProfile, nextDue, updatedMetrics] = await Promise.all([
-        authenticatedRequest('/api/auth/profile/'),
+      const [nextDue, updatedMetrics] = await Promise.all([
         authenticatedRequest('/api/revisions/due-today/'),
         authenticatedRequest('/api/dashboard/stats/'),
       ])
-      setProfile(updatedProfile)
       setTodayRevisions(nextDue)
       setDashboardMetrics(updatedMetrics)
       setReviewProblem(null)
+      window.dispatchEvent(new Event('recalldsa:revisions-updated'))
     } catch (solveError) {
       toast.error(solveError.message)
       setError(solveError.message)
@@ -240,26 +243,6 @@ function Dashboard({ theme, onToggle }) {
 
   return (
     <main className="dashboard-page">
-      <aside className="workspace-sidebar">
-        <a className="workspace-brand" href="/" aria-label="RecallDSA overview"><Logo /></a>
-        <p className="workspace-nav-label">Workspace</p>
-        <nav className="workspace-navigation" aria-label="Workspace navigation">
-          <a className="active" href="#overview"><span aria-hidden="true">▦</span>Overview</a>
-          <a href="#library"><span aria-hidden="true">⌘</span>Problems</a>
-          <a href="#today-revisions"><span aria-hidden="true">◷</span>Review queue<span className="workspace-nav-count">{todayRevisions.length}</span></a>
-          <a href="/analytics"><span aria-hidden="true">▥</span>Analytics</a>
-          <a href="/sheets"><span aria-hidden="true">▤</span>DSA sheets</a>
-        </nav>
-        <div className="sidebar-goal">
-          <span className="sidebar-goal-icon" aria-hidden="true">✦</span>
-          <strong>Keep your edge</strong>
-          <p>Small practice sessions build lasting problem-solving instincts.</p>
-          <a href="#today-revisions">Continue practice <span aria-hidden="true">↗</span></a>
-        </div>
-        <div className="sidebar-account"><span>{user?.username?.charAt(0).toUpperCase()}</span><div><strong>{user?.username}</strong><small>Personal workspace</small></div></div>
-      </aside>
-      <div className="workspace-main">
-      <header className="topbar"><div className="workspace-breadcrumb"><span>Workspace</span><span aria-hidden="true">/</span><strong>Overview</strong></div><div className="topbar-actions"><ThemeToggle onToggle={onToggle} theme={theme} /><button className="user-chip" onClick={() => setProfileOpen((open) => !open)} type="button" aria-expanded={profileOpen}><span>{user?.username?.charAt(0).toUpperCase()}</span><strong>{user?.username}</strong></button><button className="logout-button" onClick={logout} type="button">Sign out</button>{profileOpen && profile && <ProfilePanel onClose={() => setProfileOpen(false)} profile={profile} />}</div></header>
       <div className="dashboard-content" id="overview">
         <Suspense fallback={<div className="overview-loading" role="status">Preparing your dashboard…</div>}>
           <DashboardOverview
@@ -281,14 +264,77 @@ function Dashboard({ theme, onToggle }) {
           {!loading && !error && filteredQuestions.length > 0 && <div className="problem-grid">{filteredQuestions.map((question) => { const solved = solvedIds.has(question.id); return <article className={`problem-card ${solved ? 'solved-card' : ''}`} key={question.id ?? question.q_id}><div className="card-topline"><span className={`difficulty-dot ${difficultyStyles[question.difficulty]}`} /><span className="difficulty-label">{question.difficulty}</span><span className="question-number">#{String(question.leetcode_id).padStart(4, '0')}</span></div><h3>{question.title}</h3><p className="pattern-label">{question.pattern?.p_name || 'Uncategorized pattern'}</p><div className="card-footer"><button className={`solve-button ${solved ? 'is-solved' : ''}`} disabled={solvingId === question.id} onClick={() => setReviewProblem(question)} type="button">{solved ? 'Review' : solvingId === question.id ? 'Saving...' : 'Mark as solved'}</button>{question.link && <a href={question.link} rel="noreferrer" target="_blank">Open problem <span>↗</span></a>}</div></article> })}</div>}
         </section>
       </div>
-      </div>
       {reviewProblem && <ConfidenceModal problem={reviewProblem} onClose={() => setReviewProblem(null)} onSubmit={(confidence) => markSolved(reviewProblem.id, confidence)} submitting={solvingId === reviewProblem.id} />}
     </main>
   )
 }
 
+function LandingRedirect() {
+  const { isAuthenticated, loading } = useAuth()
+
+  if (loading) return <div className="loading-screen" role="status">Preparing your workspace...</div>
+  return <Navigate replace to={isAuthenticated ? '/dashboard' : '/login'} />
+}
+
+function AuthRoute({ theme, onToggle }) {
+  const { isAuthenticated, loading } = useAuth()
+  if (loading) return <div className="loading-screen" role="status">Preparing your workspace...</div>
+  if (isAuthenticated) return <Navigate replace to="/dashboard" />
+  return <AuthScreen onToggle={onToggle} theme={theme} />
+}
+
+function SheetDetailRoute() {
+  const { slug } = useParams()
+  return <SheetDetail slug={slug} />
+}
+
+function AssessmentsIndexPage() {
+  return (
+    <>
+      <AssessmentsPage />
+      <div className="route-page"><AssessmentCard /></div>
+    </>
+  )
+}
+
+function AppRoutes({ theme, onToggleTheme }) {
+  return (
+    <>
+      <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
+      <Routes>
+        <Route element={<LandingRedirect />} path="/" />
+        <Route element={<AuthRoute onToggle={onToggleTheme} theme={theme} />} path="/login" />
+        <Route element={<AuthRoute onToggle={onToggleTheme} theme={theme} />} path="/signup" />
+        <Route element={<ProtectedRoute />}>
+          <Route element={<Layout onToggleTheme={onToggleTheme} theme={theme} />}>
+            <Route element={<Dashboard />} path="/dashboard" />
+            <Route element={<ProblemsPage />} path="/problems" />
+            <Route element={<ProblemDetailPage />} path="/problems/:id" />
+            <Route element={<SheetExplorer />} path="/sheets" />
+            <Route element={<SheetDetailRoute />} path="/sheets/:slug" />
+            <Route element={<SimpleRoutePage description="The import route is ready, but the current backend does not expose a LeetCode authorization or sync endpoint yet." eyebrow="PROBLEM INGESTION" title="LeetCode sync" />} path="/import/leetcode" />
+            <Route element={<RevisionsPage />} path="/revisions" />
+            <Route element={<AssessmentsIndexPage />} path="/assessments" />
+            <Route element={<AssessmentView />} path="/assessments/current" />
+            <Route element={<AssessmentView />} path="/assessments/:id" />
+            <Route element={<AssessmentHistory />} path="/assessments/history" />
+            <Route element={<AnalyticsRoute />} path="/analytics" />
+            <Route element={<SimpleRoutePage description="Your account details and learning progress." eyebrow="YOUR ACCOUNT" title="Profile" />} path="/profile" />
+            <Route element={<SimpleRoutePage action="/settings/integrations" actionLabel="Manage integrations" description="Manage your RecallDSA preferences and connected services." eyebrow="PREFERENCES" title="Settings" />} path="/settings" />
+            <Route element={<SimpleRoutePage description="This integration route is ready for a LeetCode connection flow. The current backend does not expose an authorization or import endpoint yet." eyebrow="CONNECTED SERVICES" title="Integrations" />} path="/settings/integrations" />
+          </Route>
+        </Route>
+        <Route element={<NotFound />} path="*" />
+      </Routes>
+    </>
+  )
+}
+
+function AnalyticsRoute() {
+  return <Suspense fallback={<div className="loading-screen" role="status">Loading analytics...</div>}><AnalyticsPage /></Suspense>
+}
+
 function App() {
-  const { user, loading } = useAuth()
   const [theme, setTheme] = useState(() => localStorage.getItem('recalldsa-theme') || 'light')
 
   useEffect(() => {
@@ -298,25 +344,10 @@ function App() {
 
   const toggleTheme = () => setTheme((currentTheme) => currentTheme === 'dark' ? 'light' : 'dark')
 
-  if (loading) return <div className="loading-screen"><Logo /><span>Preparing your workspace...</span></div>
-  const path = window.location.pathname.replace(/\/+$/, '') || '/'
   return (
-    <>
-      <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
-      {user
-        ? path === '/sheets'
-          ? <SheetExplorer onToggle={toggleTheme} theme={theme} />
-          : path.startsWith('/sheets/')
-            ? <SheetDetail onToggle={toggleTheme} slug={decodeURIComponent(path.slice('/sheets/'.length))} theme={theme} />
-            : path === '/analytics'
-              ? <Suspense fallback={<div className="loading-screen"><Logo /><span>Loading analytics…</span></div>}><AnalyticsPage onToggle={toggleTheme} theme={theme} /></Suspense>
-            : path === '/assessments/current'
-              ? <AssessmentView />
-              : path === '/assessments/history'
-                ? <AssessmentHistory />
-            : <Dashboard onToggle={toggleTheme} theme={theme} />
-        : <AuthScreen onToggle={toggleTheme} theme={theme} />}
-    </>
+    <BrowserRouter>
+      <AppRoutes onToggleTheme={toggleTheme} theme={theme} />
+    </BrowserRouter>
   )
 }
 

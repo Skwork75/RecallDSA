@@ -4,23 +4,6 @@ import { useAuth } from './context/useAuth.js'
 
 const difficultyStyles = { Easy: 'easy', Medium: 'medium', Hard: 'hard' }
 
-function SheetsHeader({ theme, onToggle }) {
-  const { user, logout } = useAuth()
-  return (
-    <header className="topbar">
-      <a className="sheet-brand-link" href="/" aria-label="RecallDSA dashboard">
-        <span className="brand-lockup"><span className="brand-mark">R</span><span>Recall<span>DSA</span></span></span>
-      </a>
-      <div className="topbar-actions">
-        <a className="sheet-nav-link" href="/">Dashboard</a>
-        <button className="theme-toggle" onClick={onToggle} type="button">{theme === 'dark' ? '☀ Light' : '☾ Night'}</button>
-        <span className="sheet-user">{user?.username}</span>
-        <button className="logout-button" onClick={logout} type="button">Sign out</button>
-      </div>
-    </header>
-  )
-}
-
 function SheetProgress({ tracked, total }) {
   const percent = total ? Math.round((tracked / total) * 100) : 0
   return (
@@ -31,7 +14,7 @@ function SheetProgress({ tracked, total }) {
   )
 }
 
-export function SheetExplorer({ theme, onToggle }) {
+export function SheetExplorer() {
   const { authenticatedRequest } = useAuth()
   const [sheets, setSheets] = useState([])
   const [filter, setFilter] = useState('featured')
@@ -57,7 +40,6 @@ export function SheetExplorer({ theme, onToggle }) {
 
   return (
     <main className="sheets-page">
-      <SheetsHeader onToggle={onToggle} theme={theme} />
       <div className="sheets-content">
         <section className="sheets-intro">
           <p className="eyebrow">CURATED PRACTICE</p>
@@ -102,7 +84,7 @@ export function SheetExplorer({ theme, onToggle }) {
   )
 }
 
-export function SheetDetail({ slug, theme, onToggle }) {
+export function SheetDetail({ slug }) {
   const { authenticatedRequest } = useAuth()
   const [sheet, setSheet] = useState(null)
   const [selected, setSelected] = useState(new Set())
@@ -162,7 +144,6 @@ export function SheetDetail({ slug, theme, onToggle }) {
 
   return (
     <main className="sheets-page sheet-detail-page">
-      <SheetsHeader onToggle={onToggle} theme={theme} />
       <div className="sheets-content">
         <a className="back-link" href="/sheets">← All sheets</a>
         {loading && <div className="empty-state">Loading sheet...</div>}
