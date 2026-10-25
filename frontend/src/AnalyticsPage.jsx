@@ -17,7 +17,7 @@ import {
 } from 'recharts'
 import { useAuth } from './context/useAuth.js'
 
-const chartColors = ['#8583ff', '#59c5a4', '#f1b65f', '#f27c82', '#56a6e8', '#bf83ed']
+const chartColors = ['#6667e8', '#16a085', '#e6a23c', '#e76f8a', '#4f9bdd', '#9b72cf']
 const recommendationLabels = {
   overdue: 'OVERDUE',
   weak_pattern: 'WEAK PATTERN',
