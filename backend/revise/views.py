@@ -1,6 +1,8 @@
 from datetime import datetime, time, timedelta
 from django.contrib.auth import authenticate
+from django.contrib.auth.hashers import check_password
 from django.db import transaction
+from django.utils.dateparse import parse_datetime
 from django.db.models import Avg, Count, Exists, F, Min, OuterRef, Q, Window
 from django.db.models.functions import TruncDate
 from django.db.models.functions.window import RowNumber
@@ -16,7 +18,10 @@ from .serializers import (
     PatternStrengthResponseSerializer,
     RecommendationSerializer,
     RegisterSerializer,
+    ChangePasswordSerializer,
     UserProblemSerializer,
+    UserProfileSerializer,
+    UserSettingsSerializer,
     UserSerializer,
     DSASheetSerializer,
     DSASheetProblemSerializer,
@@ -31,6 +36,7 @@ from .models import (
     DSASheetProblem,
     Pattern,
     UserProblemProgress,
+    UserSettings,
 )
 from .sm2 import calculate_next_review
 from .services import complete_assessment, generate_weekly_assessment
@@ -336,6 +342,119 @@ def profile(request):
     return Response({
         'user': UserSerializer(request.user).data,
         'solved_problems': UserProblemSerializer(solved_problems, many=True).data,
+    })
+
+
+@api_view(['GET', 'PUT'])
+@permission_classes([IsAuthenticated])
+def user_profile(request):
+    if request.method == 'PUT':
+        serializer = UserProfileSerializer(request.user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    return Response({
+        **UserProfileSerializer(request.user).data,
+        'stats': {
+            'problems_solved': UserProblem.objects.filter(user=request.user, solved=True).count(),
+            'problems_tracked': UserProblemProgress.objects.filter(user=request.user, is_tracked=True).count(),
+            'assessments_completed': Assessment.objects.filter(user=request.user, status='completed').count(),
+        },
+    })
+
+
+@api_view(['GET', 'PUT'])
+@permission_classes([IsAuthenticated])
+def user_settings(request):
+    settings_record, _ = UserSettings.objects.get_or_create(user=request.user)
+    if request.method == 'PUT':
+        serializer = UserSettingsSerializer(settings_record, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        if 'leetcode_username' in serializer.validated_data and not settings_record.leetcode_username:
+            settings_record.leetcode_last_synced_at = None
+            settings_record.save(update_fields=['leetcode_last_synced_at'])
+        return Response(serializer.data)
+    return Response(UserSettingsSerializer(settings_record).data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def change_password(request):
+    serializer = ChangePasswordSerializer(data=request.data, context={'request': request})
+    serializer.is_valid(raise_exception=True)
+    if not check_password(serializer.validated_data['current_password'], request.user.password):
+        return Response({'current_password': ['Current password is incorrect.']}, status=status.HTTP_400_BAD_REQUEST)
+    request.user.set_password(serializer.validated_data['new_password'])
+    request.user.save(update_fields=['password'])
+    return Response({'detail': 'Password changed successfully.'})
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_account(request):
+    password = request.data.get('password')
+    if not isinstance(password, str) or not check_password(password, request.user.password):
+        return Response({'password': ['Password is incorrect.']}, status=status.HTTP_400_BAD_REQUEST)
+    request.user.delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def disconnect_leetcode(request):
+    settings_record, _ = UserSettings.objects.get_or_create(user=request.user)
+    settings_record.leetcode_username = ''
+    settings_record.leetcode_last_synced_at = None
+    settings_record.save(update_fields=['leetcode_username', 'leetcode_last_synced_at'])
+    return Response(UserSettingsSerializer(settings_record).data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def sync_leetcode(request):
+    settings_record, _ = UserSettings.objects.get_or_create(user=request.user)
+    if not settings_record.leetcode_username:
+        return Response({'detail': 'Connect a LeetCode username before syncing.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    from .integrations import fetch_recent_accepted_submissions
+    try:
+        submissions = fetch_recent_accepted_submissions(settings_record.leetcode_username)
+    except (OSError, ValueError) as error:
+        return Response({'detail': str(error)}, status=status.HTTP_502_BAD_GATEWAY)
+
+    imported_count = 0
+    for submission in submissions:
+        problem = Problem.objects.filter(slug=submission['titleSlug']).first()
+        if problem is None:
+            continue
+        reviewed_at = parse_datetime(submission['timestamp'])
+        progress, created = UserProblem.objects.get_or_create(
+            user=request.user,
+            problem=problem,
+            defaults={
+                'solved': True,
+                'source': 'import',
+                'last_reviewed': reviewed_at,
+                'revision_count': 1,
+            },
+        )
+        if created:
+            imported_count += 1
+        elif not progress.solved:
+            progress.solved = True
+            progress.source = 'import'
+            progress.last_reviewed = reviewed_at
+            progress.revision_count = max(progress.revision_count, 1)
+            progress.save(update_fields=['solved', 'source', 'last_reviewed', 'revision_count'])
+            imported_count += 1
+
+    settings_record.leetcode_last_synced_at = timezone.now()
+    settings_record.save(update_fields=['leetcode_last_synced_at'])
+    return Response({
+        'imported_count': imported_count,
+        'last_synced_at': settings_record.leetcode_last_synced_at,
     })
 
 

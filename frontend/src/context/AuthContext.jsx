@@ -101,6 +101,14 @@ export function AuthProvider({ children }) {
   const register = (credentials) => authenticate('/api/auth/register/', credentials)
   const login = (credentials) => authenticate('/api/auth/login/', credentials)
 
+  const clearAuth = () => {
+    setAuth(null)
+    setUser(null)
+    saveAuth(null)
+  }
+
+  const updateUser = (updates) => setUser((currentUser) => currentUser ? { ...currentUser, ...updates } : currentUser)
+
   const logout = async () => {
     try {
       if (auth?.access && auth?.refresh) {
@@ -111,9 +119,7 @@ export function AuthProvider({ children }) {
         })
       }
     } finally {
-      setAuth(null)
-      setUser(null)
-      saveAuth(null)
+      clearAuth()
     }
   }
 
@@ -126,7 +132,7 @@ export function AuthProvider({ children }) {
   }), [auth?.access])
 
   return (
-    <AuthContext.Provider value={{ user, loading, isAuthenticated: Boolean(auth?.access && user), register, login, logout, authenticatedRequest }}>
+    <AuthContext.Provider value={{ user, loading, isAuthenticated: Boolean(auth?.access && user), register, login, logout, clearAuth, updateUser, authenticatedRequest }}>
       {children}
     </AuthContext.Provider>
   )

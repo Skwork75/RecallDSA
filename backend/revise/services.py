@@ -11,6 +11,7 @@ from .models import (
     ReviewEvent,
     UserProblem,
     UserProblemProgress,
+    UserSettings,
 )
 from .sm2 import calculate_next_review
 
@@ -92,7 +93,10 @@ def generate_weekly_assessment(user):
 
     assessment = Assessment.objects.create(
         user=user,
-        time_limit_minutes=ASSESSMENT_TIME_LIMIT_MINUTES,
+        time_limit_minutes=UserSettings.objects.filter(user=user).values_list(
+            'assessment_time_limit',
+            flat=True,
+        ).first() or ASSESSMENT_TIME_LIMIT_MINUTES,
         total_problems=len(selected),
     )
     AssessmentProblem.objects.bulk_create([

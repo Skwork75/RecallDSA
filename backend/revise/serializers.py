@@ -10,7 +10,11 @@ from .models import (
     DSASheetProblem,
 )
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+import re
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from rest_framework import serializers
+from .models import UserSettings
 
 User = get_user_model()
 
@@ -64,6 +68,49 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'username', 'email']
+
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    date_joined = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'email', 'date_joined']
+
+    def validate_email(self, value):
+        if User.objects.filter(email__iexact=value).exclude(pk=self.instance.pk).exists():
+            raise serializers.ValidationError('A user with this email address already exists.')
+        return value
+
+
+class UserSettingsSerializer(serializers.ModelSerializer):
+    daily_problem_goal = serializers.IntegerField(min_value=1, max_value=50)
+    assessment_time_limit = serializers.IntegerField(min_value=5, max_value=180)
+
+    class Meta:
+        model = UserSettings
+        exclude = ['id', 'user']
+
+    def validate_timezone(self, value):
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise serializers.ValidationError('Enter a valid IANA timezone, such as America/New_York.')
+        return value
+
+    def validate_leetcode_username(self, value):
+        if value and not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', value):
+            raise serializers.ValidationError('Use only letters, numbers, underscores, or hyphens.')
+        return value
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    current_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True)
+
+    def validate_new_password(self, value):
+        validate_password(value, self.context['request'].user)
+        return value
 
 
 class RegisterSerializer(serializers.ModelSerializer):

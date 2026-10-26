@@ -14,6 +14,7 @@ import {
   RevisionsPage,
   SimpleRoutePage,
 } from './RoutePages.jsx'
+import { ProfilePage, SettingsPage } from './UserPages.jsx'
 
 const AnalyticsPage = lazy(() => import('./AnalyticsPage.jsx'))
 const DashboardOverview = lazy(() => import('./DashboardOverview.jsx'))
@@ -297,7 +298,7 @@ function AssessmentsIndexPage() {
   )
 }
 
-function AppRoutes({ theme, onToggleTheme }) {
+function AppRoutes({ theme, onToggleTheme, onThemeChange }) {
   return (
     <>
       <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
@@ -319,9 +320,9 @@ function AppRoutes({ theme, onToggleTheme }) {
             <Route element={<AssessmentView />} path="/assessments/:id" />
             <Route element={<AssessmentHistory />} path="/assessments/history" />
             <Route element={<AnalyticsRoute />} path="/analytics" />
-            <Route element={<SimpleRoutePage description="Your account details and learning progress." eyebrow="YOUR ACCOUNT" title="Profile" />} path="/profile" />
-            <Route element={<SimpleRoutePage action="/settings/integrations" actionLabel="Manage integrations" description="Manage your RecallDSA preferences and connected services." eyebrow="PREFERENCES" title="Settings" />} path="/settings" />
-            <Route element={<SimpleRoutePage description="This integration route is ready for a LeetCode connection flow. The current backend does not expose an authorization or import endpoint yet." eyebrow="CONNECTED SERVICES" title="Integrations" />} path="/settings/integrations" />
+            <Route element={<ProfilePage />} path="/profile" />
+            <Route element={<SettingsPage onThemeChange={onThemeChange} />} path="/settings" />
+            <Route element={<SettingsPage onThemeChange={onThemeChange} />} path="/settings/integrations" />
           </Route>
         </Route>
         <Route element={<NotFound />} path="*" />
@@ -346,7 +347,7 @@ function App() {
 
   return (
     <BrowserRouter>
-      <AppRoutes onToggleTheme={toggleTheme} theme={theme} />
+      <AppRoutes onThemeChange={setTheme} onToggleTheme={toggleTheme} theme={theme} />
     </BrowserRouter>
   )
 }

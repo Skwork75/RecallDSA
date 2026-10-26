@@ -13,6 +13,7 @@
     "react": "^19.2.7",
     "react-calendar-heatmap": "^1.10.0",
     "react-dom": "^19.2.7",
+    "react-hook-form": "^7.91.0",
     "react-hot-toast": "^2.6.1",
     "react-router-dom": "^6.30.6",
     "recharts": "^3.10.1"

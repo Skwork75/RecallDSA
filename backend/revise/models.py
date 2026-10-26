@@ -212,3 +212,33 @@ class AssessmentProblem(models.Model):
 
     def __str__(self):
         return f'{self.assessment} - {self.problem} ({self.status})'
+
+
+class UserSettings(models.Model):
+    WEEKDAY_CHOICES = [
+        ('monday', 'Monday'),
+        ('tuesday', 'Tuesday'),
+        ('wednesday', 'Wednesday'),
+        ('thursday', 'Thursday'),
+        ('friday', 'Friday'),
+        ('saturday', 'Saturday'),
+        ('sunday', 'Sunday'),
+    ]
+    THEME_CHOICES = [
+        ('light', 'Light'),
+        ('dark', 'Dark'),
+    ]
+
+    user = models.OneToOneField(get_user_model(), on_delete=models.CASCADE, related_name='settings')
+    daily_problem_goal = models.PositiveSmallIntegerField(default=3)
+    assessment_day = models.CharField(max_length=9, choices=WEEKDAY_CHOICES, default='sunday')
+    assessment_time_limit = models.PositiveSmallIntegerField(default=20)
+    email_reminders = models.BooleanField(default=True)
+    reminder_time = models.TimeField(default='09:00')
+    theme = models.CharField(max_length=5, choices=THEME_CHOICES, default='light')
+    timezone = models.CharField(max_length=64, default='UTC')
+    leetcode_username = models.CharField(max_length=100, blank=True, default='')
+    leetcode_last_synced_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f'{self.user} settings'
