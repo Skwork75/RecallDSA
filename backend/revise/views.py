@@ -646,22 +646,21 @@ def dashboard_stats(request):
     review_metrics = review_events.aggregate(
         total=Count('id'),
         average=Avg('confidence'),
-        recent=Count('id', filter=Q(
-            reviewed_at__gte=review_window_start,
-            reviewed_at__lt=review_window_end,
-        )),
         this_week=Count('id', filter=Q(
             reviewed_at__gte=week_start,
             reviewed_at__lt=now,
         )),
     )
     reviews_done = review_metrics['total']
-    recent_reviews_done = review_metrics['recent']
+    completed_due_reviews = review_events.filter(
+        scheduled_for__gte=review_window_start,
+        scheduled_for__lte=now,
+    ).count()
     outstanding_reviews = tracked.filter(
         next_review_date__gte=review_window_start,
-        next_review_date__lt=review_window_end,
+        next_review_date__lte=now,
     ).count()
-    reviews_due = recent_reviews_done + outstanding_reviews
+    reviews_due = completed_due_reviews + outstanding_reviews
 
     activity_start_date = today - timedelta(days=89)
     activity_start = timezone.make_aware(
@@ -720,7 +719,7 @@ def dashboard_stats(request):
         'problems_due_this_week': tracked_metrics['due_this_week'],
         'current_streak': current_streak,
         'longest_streak': longest_streak,
-        'revision_completion_7days': round(recent_reviews_done * 100 / reviews_due) if reviews_due else 0,
+        'revision_completion_7days': round(completed_due_reviews * 100 / reviews_due) if reviews_due else 0,
         'total_reviews_done': reviews_done,
         'avg_confidence': round(review_metrics['average'], 2) if review_metrics['average'] is not None else None,
         'patterns_covered': tracked_metrics['patterns'],
@@ -919,17 +918,9 @@ def dashboard(request):
         }
         for totals in pattern_totals.values()
     ]
-    patterns.sort(key=lambda item: item['average_confidence'])
-    strongest_pattern = max(
-        patterns,
-        key=lambda item: (item['average_confidence'], item['name'].lower()),
-        default=None,
-    ) if len(patterns) >= 2 else None
-    weakest_pattern = min(
-        patterns,
-        key=lambda item: (item['average_confidence'], item['name'].lower()),
-        default=None,
-    ) if len(patterns) >= 2 else None
+    patterns.sort(key=lambda item: (item['average_confidence'], item['name'].lower()))
+    weakest_pattern = patterns[0] if len(patterns) >= 2 else None
+    strongest_pattern = patterns[-1] if len(patterns) >= 2 else None
 
     today = timezone.localdate(now)
     streak, _ = _review_streaks(review_dates, today)

@@ -198,8 +198,8 @@ export function AssessmentView() {
                 <p>Try the problem, then record whether you solved it from memory.</p>
                 <a className="assessment-problem-link" href={activeEntry.problem.link} rel="noreferrer" target="_blank">Open problem ↗</a>
                 <div className="assessment-answer-actions">
-                  <button className={`assessment-answer solved ${activeEntry.status === 'solved' ? 'selected' : ''}`} disabled={submitting} onClick={() => answer('solved')} type="button">✓ Solved</button>
-                  <button className={`assessment-answer missed ${activeEntry.status === 'missed' ? 'selected' : ''}`} disabled={submitting} onClick={() => answer('missed')} type="button">✗ Missed</button>
+                  <button className={`assessment-answer solved ${activeEntry.status === 'solved' ? 'selected' : ''}`} disabled={submitting} onClick={() => answer('solved')} type="button"><span aria-hidden="true">✓</span><span>Solved</span></button>
+                  <button className={`assessment-answer missed ${activeEntry.status === 'missed' ? 'selected' : ''}`} disabled={submitting} onClick={() => answer('missed')} type="button"><span aria-hidden="true">✗</span><span>Missed</span></button>
                 </div>
               </article>
             )}

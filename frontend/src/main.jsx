@@ -8,11 +8,14 @@ import './Navigation.css'
 import './UserPages.css'
 import App from './App.jsx'
 import { AuthProvider } from './context/AuthContext.jsx'
+import ErrorBoundary from './components/ErrorBoundary.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <AuthProvider>
-      <App />
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <App />
+      </AuthProvider>
+    </ErrorBoundary>
   </StrictMode>,
 )

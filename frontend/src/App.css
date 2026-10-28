@@ -250,10 +250,10 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .assessment-problem-nav button.active { border-color: var(--green); box-shadow: 0 0 0 2px var(--green); }
 .assessment-problem-nav button.answered { background: var(--lime); }
 .assessment-question h2 { font-family: 'Fraunces', serif; font-size: clamp(28px, 4vw, 40px); letter-spacing: -.04em; margin: 20px 0 8px; }
-.assessment-question > p { color: var(--muted); }
+.assessment-question > p { color: var(--muted); line-height: 1.6; margin: 10px 0 0; }
 .assessment-problem-link { color: var(--green); display: inline-block; font-size: 14px; margin-top: 8px; }
-.assessment-answer-actions { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 30px; }
-.assessment-answer { border: 1px solid transparent; border-radius: 4px; cursor: pointer; font-size: 15px; font-weight: 700; min-width: 150px; padding: 14px 20px; }
+.assessment-answer-actions { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 30px; }
+.assessment-answer { align-items: center; border: 1px solid transparent; border-radius: 4px; cursor: pointer; display: inline-flex; font-size: 15px; font-weight: 700; gap: 10px; justify-content: center; min-height: 52px; padding: 14px 20px; }
 .assessment-answer.solved { background: #e8f5eb; color: #20723a; }
 .assessment-answer.missed { background: #fcebea; color: #b42318; }
 .assessment-answer.selected { box-shadow: 0 0 0 2px currentColor; }
@@ -273,6 +273,7 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .assessment-history-item { align-items: center; background: var(--white); border: 1px solid var(--line); color: var(--ink); cursor: pointer; display: grid; gap: 12px; grid-template-columns: 1fr auto auto; padding: 16px 20px; text-align: left; }
 .assessment-history-item.selected { border-color: var(--green); }
 .assessment-history-item small { color: var(--muted); }
+@media (max-width: 480px) { .assessment-answer-actions { grid-template-columns: 1fr; } }
 .metrics-row { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 42px 0 55px; }
 .pattern-metric strong { font-family: 'DM Sans', sans-serif; font-size: 20px; letter-spacing: 0; line-height: 1.2; overflow-wrap: anywhere; }
 .pattern-analysis-section { margin: 36px 0 52px; }

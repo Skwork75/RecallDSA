@@ -354,7 +354,7 @@ class AuthenticationTests(APITestCase):
 		self.assertEqual(payload['problems_due_this_week'], 1)
 		self.assertEqual(payload['current_streak'], 3)
 		self.assertEqual(payload['longest_streak'], 3)
-		self.assertEqual(payload['revision_completion_7days'], 75)
+		self.assertEqual(payload['revision_completion_7days'], 50)
 		self.assertEqual(payload['total_reviews_done'], 3)
 		self.assertEqual(payload['avg_confidence'], 3)
 		self.assertEqual(payload['patterns_covered'], 2)
