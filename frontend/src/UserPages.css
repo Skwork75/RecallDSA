@@ -91,3 +91,37 @@
   .theme-options { grid-template-columns: 1fr; }
   .profile-footer { align-items: flex-start; flex-direction: column; gap: 12px; }
 }
+
+.danger-button:disabled,
+.confirm-modal .secondary-button:disabled {
+  cursor: wait;
+  opacity: .65;
+}
+
+.page-loading-skeleton {
+  display: grid;
+  gap: 14px;
+  max-width: 760px;
+}
+
+.page-skeleton-heading {
+  height: 48px;
+  width: min(60%, 380px);
+}
+
+.page-skeleton-line {
+  height: 18px;
+  width: min(78%, 520px);
+}
+
+.page-skeleton-card {
+  height: 220px;
+  margin-top: 20px;
+  width: 100%;
+}
+
+@media (max-width: 640px) {
+  .confirm-modal > p:not(.eyebrow) {
+    font-size: 15px;
+  }
+}

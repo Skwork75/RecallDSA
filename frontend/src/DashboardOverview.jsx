@@ -1,5 +1,6 @@
 import CalendarHeatmap from 'react-calendar-heatmap'
 import 'react-calendar-heatmap/dist/styles.css'
+import { motion, useReducedMotion } from 'framer-motion'
 import {
   Cell,
   CartesianGrid,
@@ -29,6 +30,7 @@ function DashboardOverview({
   onReview,
   todayRevisions,
 }) {
+  const reduceMotion = useReducedMotion()
   const patterns = (dashboardInsights?.patternStrength?.patterns ?? []).filter((pattern) => pattern.total_problems > 0)
   const activity = dashboardMetrics?.activity_last_90days ?? []
   const nextReviewDate = dashboardMetrics?.next_review_date
@@ -36,7 +38,11 @@ function DashboardOverview({
     : null
 
   return (
-    <>
+    <motion.div
+      animate={{ opacity: 1, y: 0 }}
+      initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+      transition={{ duration: reduceMotion ? 0 : 0.32, ease: 'easeOut' }}
+    >
       <section className="dashboard-hero">
         <div>
           <p className="eyebrow">{dashboardMetrics?.onboarding_status === 'new' ? 'YOUR PRACTICE STARTS HERE' : 'YOUR NEXT REP'}</p>
@@ -88,7 +94,7 @@ function DashboardOverview({
       <div className="dashboard-insight-grid">
         <section className="analytics-panel dashboard-panel">
           <div className="analytics-panel-heading"><div><p className="eyebrow">RECALL QUALITY</p><h2>Confidence trend</h2></div><span className="result-count">Last 30 days</span></div>
-          {!dashboardInsights?.confidenceTrend?.some((day) => day.average_confidence !== null) ? <div className="analytics-empty">Your confidence trend will appear after your first review.</div> : <div className="analytics-chart"><ResponsiveContainer width="100%" height={245}><LineChart data={dashboardInsights.confidenceTrend} margin={{ top: 12, right: 12, left: -16, bottom: 0 }}><CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 4" /><XAxis dataKey="date" tick={{ fill: 'var(--muted)', fontSize: 10 }} tickFormatter={(date) => date.slice(5)} minTickGap={24} /><YAxis domain={[1, 5]} ticks={[1, 2, 3, 4, 5]} tick={{ fill: 'var(--muted)', fontSize: 10 }} /><Tooltip contentStyle={{ background: 'var(--white)', border: '1px solid var(--line)', borderRadius: 8, color: 'var(--ink)' }} formatter={(value) => [`${Number(value).toFixed(1)} / 5`, 'Confidence']} /><Line connectNulls dataKey="average_confidence" dot={{ r: 3, fill: 'var(--green)' }} stroke="var(--green)" strokeWidth={3} type="monotone" /></LineChart></ResponsiveContainer></div>}
+          {dashboardLoading ? <div aria-label="Loading confidence trend" className="analytics-chart-skeleton" role="status"><i className="skeleton" /><i className="skeleton" /><i className="skeleton" /></div> : !dashboardInsights?.confidenceTrend?.some((day) => day.average_confidence !== null) ? <div className="analytics-empty">Your confidence trend will appear after your first review.</div> : <div className="analytics-chart"><ResponsiveContainer width="100%" height={245}><LineChart data={dashboardInsights.confidenceTrend} margin={{ top: 12, right: 12, left: -16, bottom: 0 }}><CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 4" /><XAxis dataKey="date" tick={{ fill: 'var(--muted)', fontSize: 10 }} tickFormatter={(date) => date.slice(5)} minTickGap={24} /><YAxis domain={[1, 5]} ticks={[1, 2, 3, 4, 5]} tick={{ fill: 'var(--muted)', fontSize: 10 }} /><Tooltip contentStyle={{ background: 'var(--white)', border: '1px solid var(--line)', borderRadius: 8, color: 'var(--ink)' }} formatter={(value) => [`${Number(value).toFixed(1)} / 5`, 'Confidence']} /><Line connectNulls dataKey="average_confidence" dot={{ r: 3, fill: 'var(--green)' }} stroke="var(--green)" strokeWidth={3} type="monotone" /></LineChart></ResponsiveContainer></div>}
         </section>
         <section className="analytics-panel dashboard-panel">
           <div className="analytics-panel-heading"><div><p className="eyebrow">YOUR PRACTICE PLAN</p><h2>Pattern distribution</h2></div><span className="result-count">{dashboardMetrics?.patterns_covered ?? 0} / 25 covered</span></div>
@@ -108,7 +114,7 @@ function DashboardOverview({
         <div className="dashboard-section-heading"><div><p className="eyebrow">PERSONALIZED FOCUS</p><h2>Weak areas</h2></div><a href="/analytics">View analytics ↗</a></div>
         {!dashboardInsights ? <div className="revision-skeletons" aria-label="Loading recommendations"><i /><i /></div> : dashboardInsights.recommendations.length === 0 ? <div className="analytics-empty">No urgent weak spots yet. Keep reviewing to unlock focused recommendations.</div> : <div className="weak-area-list">{dashboardInsights.recommendations.slice(0, 3).map((recommendation, index) => <article className="weak-area-card" key={`${recommendation.type}-${recommendation.pattern_id ?? index}`}><span className={`weak-area-priority priority-${recommendation.priority}`}>{recommendation.priority}</span><div><strong>{recommendation.title}</strong><p>{recommendation.description}</p></div><a href={recommendation.type === 'overdue' ? '#today-revisions' : '/analytics'}>{recommendation.action_label || 'Review'} <span aria-hidden="true">↗</span></a></article>)}</div>}
       </section>
-    </>
+    </motion.div>
   )
 }
 

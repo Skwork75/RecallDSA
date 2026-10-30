@@ -1,16 +1,12 @@
-# React + Vite
+# RecallDSA frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The frontend is a React single-page app served by Vite. Run `npm run dev` from
+this directory for local development and `npm run build` for a production build.
 
-Currently, two official plugins are available:
+## Progressive web app
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Production builds include a web app manifest and register `public/sw.js` after
+the page loads. The service worker caches the app shell and static build assets
+so the interface can reopen offline; API data and authenticated requests still
+require a network connection. Installability and service-worker behavior
+require HTTPS in production (localhost is supported for development).

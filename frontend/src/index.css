@@ -1,3 +1,92 @@
 @import 'tailwindcss';
 
+:root {
+  color-scheme: light;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
 
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+html {
+  min-width: 320px;
+  scroll-behavior: smooth;
+  text-size-adjust: 100%;
+}
+
+body {
+  min-width: 320px;
+}
+
+body.modal-open {
+  overflow: hidden;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--orange, #ef8354) 55%, transparent);
+  outline-offset: 3px;
+}
+
+.skeleton {
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+  background: linear-gradient(90deg, var(--line, #dfe2db) 25%, color-mix(in srgb, var(--line, #dfe2db) 45%, var(--white, white)) 50%, var(--line, #dfe2db) 75%);
+  background-size: 200% 100%;
+  border-radius: 4px;
+}
+
+.tooltip-target {
+  position: relative;
+}
+
+.tooltip-target[data-tooltip]::after {
+  background: var(--ink);
+  border-radius: 5px;
+  color: var(--white);
+  content: attr(data-tooltip);
+  font-size: 11px;
+  font-weight: 500;
+  left: 50%;
+  opacity: 0;
+  padding: 6px 9px;
+  pointer-events: none;
+  position: absolute;
+  top: calc(100% + 8px);
+  transform: translate(-50%, -3px);
+  transition: opacity .16s ease, transform .16s ease;
+  visibility: hidden;
+  white-space: nowrap;
+  z-index: 60;
+}
+
+.tooltip-target[data-tooltip]:hover::after,
+.tooltip-target[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  visibility: visible;
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% { background-position: 100% 0; }
+  50% { background-position: 0 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+  }
+}

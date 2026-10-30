@@ -1,6 +1,7 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import toast, { Toaster } from 'react-hot-toast'
-import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from './context/useAuth.js'
 import { SheetDetail, SheetExplorer } from './SheetPages.jsx'
 import { AssessmentCard, AssessmentHistory, AssessmentView } from './AssessmentPages.jsx'
@@ -32,6 +33,8 @@ function ThemeToggle({ theme, onToggle }) {
 
 function ConfidenceModal({ problem, onClose, onSubmit, submitting }) {
   const [confidence, setConfidence] = useState(3)
+  const cancelButtonRef = useRef(null)
+  const reduceMotion = useReducedMotion()
   const labels = {
     1: 'Forgot',
     2: 'Barely',
@@ -40,12 +43,46 @@ function ConfidenceModal({ problem, onClose, onSubmit, submitting }) {
     5: 'Instant',
   }
 
+  useEffect(() => {
+    document.body.classList.add('modal-open')
+    cancelButtonRef.current?.focus()
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape' && !submitting) onClose()
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.body.classList.remove('modal-open')
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [onClose, submitting])
+
   return (
-    <div className="review-modal-backdrop" onClick={onClose} role="presentation">
-      <div className="review-modal" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="Recall rating">
+    <motion.div
+      animate={{ opacity: 1 }}
+      className="review-modal-backdrop"
+      exit={{ opacity: 0 }}
+      initial={reduceMotion ? false : { opacity: 0 }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget && !submitting) onClose()
+      }}
+      role="presentation"
+      transition={{ duration: reduceMotion ? 0 : 0.18 }}
+    >
+      <motion.div
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        aria-describedby="recall-rating-description"
+        aria-labelledby="recall-rating-title"
+        aria-modal="true"
+        className="review-modal"
+        exit={{ opacity: 0, y: 16, scale: 0.98 }}
+        initial={reduceMotion ? false : { opacity: 0, y: 16, scale: 0.98 }}
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        transition={{ duration: reduceMotion ? 0 : 0.2 }}
+      >
         <p className="eyebrow">RECALL CHECK</p>
-        <h2>How well do you remember this problem?</h2>
-        <p className="review-modal-subtitle">Rate this revision so your spaced repetition schedule can update accurately.</p>
+        <h2 id="recall-rating-title">How well do you remember this problem?</h2>
+        <p className="review-modal-subtitle" id="recall-rating-description">Rate this revision so your spaced repetition schedule can update accurately.</p>
         <div className="rating-row" aria-label="Rate your recall confidence">
           {[1, 2, 3, 4, 5].map((value) => (
             <button
@@ -68,11 +105,14 @@ function ConfidenceModal({ problem, onClose, onSubmit, submitting }) {
             <span key={value} className={Number(value) === confidence ? 'active' : ''}>{label}</span>
           ))}
         </div>
-        <button className="primary-button review-submit" disabled={submitting} onClick={() => onSubmit(confidence)} type="button">
-          {submitting ? 'Saving review...' : 'Submit rating'}
-        </button>
-      </div>
-    </div>
+        <div className="review-modal-actions flex-col-reverse sm:flex-row">
+          <button className="secondary-button w-full sm:w-auto" disabled={submitting} onClick={onClose} ref={cancelButtonRef} type="button">Cancel</button>
+          <button className="primary-button review-submit w-full sm:w-auto" disabled={submitting} onClick={() => onSubmit(confidence)} type="button">
+            {submitting ? 'Saving review...' : 'Submit rating'}
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
   )
 }
 
@@ -259,13 +299,24 @@ function Dashboard() {
         <section className="library-section" id="library">
           <div className="section-heading"><div><p className="eyebrow">YOUR LIBRARY</p><h2>Problem patterns</h2></div><span className="result-count">{filteredQuestions.length} shown</span></div>
           <div className="library-tools"><label className="search-field"><span aria-hidden="true">⌕</span><input onChange={(event) => setQuery(event.target.value)} placeholder="Search problems or patterns" value={query} /></label><div className="filter-group" aria-label="Filter by difficulty">{['All', 'Easy', 'Medium', 'Hard'].map((option) => <button className={difficulty === option ? 'active' : ''} key={option} onClick={() => setDifficulty(option)} type="button">{option}</button>)}</div></div>
-          {loading && <div className="empty-state">Loading your problem library...</div>}
+          {loading && <div aria-busy="true" aria-label="Loading problem library" className="problem-grid library-skeletons" role="status">{[0, 1, 2].map((item) => <article aria-hidden="true" className="problem-card" key={item}><i className="skeleton library-skeleton-title" /><i className="skeleton library-skeleton-line" /><i className="skeleton library-skeleton-line short" /><i className="skeleton library-skeleton-button" /></article>)}</div>}
           {error && <div className="empty-state error-state">{error}</div>}
-          {!loading && !error && filteredQuestions.length === 0 && <div className="empty-state">No problems match this view yet.</div>}
+          {!loading && !error && filteredQuestions.length === 0 && (
+            <div className="empty-state library-empty-state" role="status">
+              <span aria-hidden="true">{questions.length === 0 ? '▤' : '⌕'}</span>
+              <h3>{questions.length === 0 ? 'Your library is ready to grow' : 'No problems match this view'}</h3>
+              <p>{questions.length === 0 ? 'Add a few problems from a curated sheet to start building your revision queue.' : 'Try a different search or clear the selected difficulty filter.'}</p>
+              {questions.length === 0
+                ? <Link className="primary-button" to="/sheets">Explore problem sheets <span aria-hidden="true">↗</span></Link>
+                : <button className="secondary-button" onClick={() => { setQuery(''); setDifficulty('All') }} type="button">Clear search and filters</button>}
+            </div>
+          )}
           {!loading && !error && filteredQuestions.length > 0 && <div className="problem-grid">{filteredQuestions.map((question) => { const solved = solvedIds.has(question.id); return <article className={`problem-card ${solved ? 'solved-card' : ''}`} key={question.id ?? question.q_id}><div className="card-topline"><span className={`difficulty-dot ${difficultyStyles[question.difficulty]}`} /><span className="difficulty-label">{question.difficulty}</span><span className="question-number">#{String(question.leetcode_id).padStart(4, '0')}</span></div><h3>{question.title}</h3><p className="pattern-label">{question.pattern?.p_name || 'Uncategorized pattern'}</p><div className="card-footer"><button className={`solve-button ${solved ? 'is-solved' : ''}`} disabled={solvingId === question.id} onClick={() => setReviewProblem(question)} type="button">{solved ? 'Review' : solvingId === question.id ? 'Saving...' : 'Mark as solved'}</button>{question.link && <a href={question.link} rel="noreferrer" target="_blank">Open problem <span>↗</span></a>}</div></article> })}</div>}
         </section>
       </div>
-      {reviewProblem && <ConfidenceModal problem={reviewProblem} onClose={() => setReviewProblem(null)} onSubmit={(confidence) => markSolved(reviewProblem.id, confidence)} submitting={solvingId === reviewProblem.id} />}
+      <AnimatePresence>
+        {reviewProblem && <ConfidenceModal key={reviewProblem.id} problem={reviewProblem} onClose={() => setReviewProblem(null)} onSubmit={(confidence) => markSolved(reviewProblem.id, confidence)} submitting={solvingId === reviewProblem.id} />}
+      </AnimatePresence>
     </main>
   )
 }
@@ -301,7 +352,15 @@ function AssessmentsIndexPage() {
 function AppRoutes({ theme, onToggleTheme, onThemeChange }) {
   return (
     <>
-      <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          duration: 3200,
+          style: { background: 'var(--white)', border: '1px solid var(--line)', boxShadow: 'var(--shadow)', color: 'var(--ink)' },
+          success: { iconTheme: { primary: 'var(--green)', secondary: 'var(--white)' } },
+          error: { iconTheme: { primary: '#c4574b', secondary: 'var(--white)' } },
+        }}
+      />
       <Routes>
         <Route element={<LandingRedirect />} path="/" />
         <Route element={<AuthRoute onToggle={onToggleTheme} theme={theme} />} path="/login" />

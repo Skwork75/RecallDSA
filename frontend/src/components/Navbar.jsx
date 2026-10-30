@@ -66,6 +66,7 @@ function UserDropdown({ user, onClose }) {
 
 export default function Navbar({ theme, onToggleTheme }) {
   const { user, authenticatedRequest } = useAuth()
+  const hamburgerRef = useRef(null)
   const [dueCount, setDueCount] = useState(0)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -91,7 +92,18 @@ export default function Navbar({ theme, onToggleTheme }) {
 
   useEffect(() => {
     document.body.classList.toggle('drawer-open', drawerOpen)
-    return () => document.body.classList.remove('drawer-open')
+    if (!drawerOpen) return
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') {
+        setDrawerOpen(false)
+        hamburgerRef.current?.focus()
+      }
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.body.classList.remove('drawer-open')
+      document.removeEventListener('keydown', closeOnEscape)
+    }
   }, [drawerOpen])
 
   const closeDrawer = () => setDrawerOpen(false)
@@ -113,11 +125,11 @@ export default function Navbar({ theme, onToggleTheme }) {
       </nav>
 
       <div className="navbar-actions">
-        <NavLink aria-label={`${dueCount} reviews due`} className="notification-button" title={`${dueCount} reviews due`} to="/revisions">
+        <NavLink aria-label={`${dueCount} reviews due`} className="notification-button tooltip-target" data-tooltip={`${dueCount} reviews due`} title={`${dueCount} reviews due`} to="/revisions">
           <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" /></svg>
           {dueCount > 0 && <span className="notification-count">{dueCount > 99 ? '99+' : dueCount}</span>}
         </NavLink>
-        <button aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'} className="navbar-icon-button theme-button" onClick={onToggleTheme} title={isDark ? 'Switch to light mode' : 'Switch to dark mode'} type="button">
+        <button aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'} className="navbar-icon-button theme-button tooltip-target" data-tooltip={isDark ? 'Switch to light mode' : 'Switch to dark mode'} onClick={onToggleTheme} title={isDark ? 'Switch to light mode' : 'Switch to dark mode'} type="button">
           <span aria-hidden="true">{isDark ? '☀' : '☾'}</span>
         </button>
         <div className="navbar-user">
@@ -128,7 +140,7 @@ export default function Navbar({ theme, onToggleTheme }) {
           </button>
           {userMenuOpen && <UserDropdown onClose={closeUserMenu} user={user} />}
         </div>
-        <button aria-expanded={drawerOpen} aria-label={drawerOpen ? 'Close navigation menu' : 'Open navigation menu'} className={`navbar-icon-button hamburger-button${drawerOpen ? ' is-open' : ''}`} onClick={() => setDrawerOpen((open) => !open)} type="button">
+        <button aria-expanded={drawerOpen} aria-label={drawerOpen ? 'Close navigation menu' : 'Open navigation menu'} className={`navbar-icon-button hamburger-button${drawerOpen ? ' is-open' : ''}`} data-tooltip={drawerOpen ? 'Close menu' : 'Open menu'} onClick={() => setDrawerOpen((open) => !open)} ref={hamburgerRef} type="button">
           <span /><span /><span />
         </button>
       </div>

@@ -108,11 +108,34 @@
   width: 100%;
 }
 
+.analytics-chart-skeleton {
+  align-items: end;
+  display: flex;
+  gap: 12px;
+  height: 245px;
+  overflow: hidden;
+  padding: 20px 8px 10px;
+}
+
+.analytics-chart-skeleton i {
+  flex: 1;
+  height: 55%;
+}
+
+.analytics-chart-skeleton i:nth-child(2) {
+  height: 82%;
+}
+
+.analytics-chart-skeleton i:nth-child(3) {
+  height: 68%;
+}
+
 .analytics-donut-layout {
   align-items: center;
   display: grid;
   gap: 15px;
-  grid-template-columns: minmax(150px, 1fr) minmax(120px, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 1fr);
+  min-width: 0;
 }
 
 .analytics-legend {
@@ -366,6 +389,22 @@
 
   .analytics-panel {
     padding: 16px 12px;
+  }
+
+  .analytics-donut-layout {
+    gap: 4px;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .analytics-donut {
+    max-width: 360px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  .analytics-legend {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-height: 180px;
   }
 
   .analytics-donut-layout {

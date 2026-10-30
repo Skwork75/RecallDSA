@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { useForm, useWatch } from 'react-hook-form'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from './context/useAuth.js'
@@ -20,6 +21,18 @@ const defaultSettings = {
   theme: 'light',
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
   leetcode_username: '',
+}
+
+function PageLoadingSkeleton({ label }) {
+  return (
+    <main className="route-page">
+      <div aria-busy="true" aria-label={label} className="page-loading-skeleton" role="status">
+        <i className="skeleton page-skeleton-heading" />
+        <i className="skeleton page-skeleton-line" />
+        <i className="skeleton page-skeleton-card" />
+      </div>
+    </main>
+  )
 }
 
 export function ProfilePage() {
@@ -66,7 +79,7 @@ export function ProfilePage() {
     }
   }
 
-  if (loading) return <main className="route-page"><div className="empty-state">Loading your profile...</div></main>
+  if (loading) return <PageLoadingSkeleton label="Loading your profile" />
   if (!profile) return <main className="route-page"><div className="empty-state error-state" role="alert">{error || 'Unable to load your profile.'}</div></main>
 
   const initials = profile.username.split(/[._\s-]/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join('')
@@ -136,6 +149,7 @@ export function SettingsPage({ onThemeChange }) {
   const [working, setWorking] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [connected, setConnected] = useState(false)
+  const [pendingDeletePassword, setPendingDeletePassword] = useState(null)
   const { register, handleSubmit, reset, control, formState: { errors } } = useForm({ defaultValues: defaultSettings })
   const passwordForm = useForm()
   const deleteForm = useForm()
@@ -240,23 +254,27 @@ export function SettingsPage({ onThemeChange }) {
     }
   }
 
-  const deleteAccount = async ({ password }) => {
+  const deleteAccount = async () => {
+    if (!pendingDeletePassword) return
     setWorking(true)
     setAccountError('')
     try {
       await authenticatedRequest('/api/users/delete-account/', {
         method: 'DELETE',
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ password: pendingDeletePassword }),
       })
       clearAuth()
       navigate('/login', { replace: true })
     } catch (requestError) {
       setAccountError(requestError.message)
+      setPendingDeletePassword(null)
+      deleteForm.reset()
+    } finally {
       setWorking(false)
     }
   }
 
-  if (loading) return <main className="route-page"><div className="empty-state">Loading your settings...</div></main>
+  if (loading) return <PageLoadingSkeleton label="Loading your settings" />
 
   return (
     <main className="route-page user-page settings-page">
@@ -357,15 +375,80 @@ export function SettingsPage({ onThemeChange }) {
             </section>
             <section className="account-section danger-zone">
               <div className="settings-section-heading"><h2>Delete account</h2><p>This permanently deletes your account, settings, and learning history.</p></div>
-              <form className="settings-form" onSubmit={deleteForm.handleSubmit(deleteAccount)}>
+              <form className="settings-form" onSubmit={deleteForm.handleSubmit(({ password }) => setPendingDeletePassword(password))}>
                 <label className="settings-field">Confirm with your password<input autoComplete="current-password" type="password" {...deleteForm.register('password', { required: 'Enter your password to delete your account.' })} />{deleteForm.formState.errors.password && <span className="field-error">{deleteForm.formState.errors.password.message}</span>}</label>
                 {accountError && <p className="form-error" role="alert">{accountError}</p>}
-                <button className="danger-button" disabled={working} type="submit">{working ? 'Deleting...' : 'Delete my account'}</button>
+                <button className="danger-button" disabled={working} type="submit">Continue to delete account</button>
               </form>
             </section>
           </div>}
         </div>
       </div>
+      <AnimatePresence>
+        {pendingDeletePassword && (
+          <DeleteAccountConfirmation
+            key="delete-account-confirmation"
+            onCancel={() => {
+              setPendingDeletePassword(null)
+              deleteForm.reset()
+            }}
+            onConfirm={deleteAccount}
+            working={working}
+          />
+        )}
+      </AnimatePresence>
     </main>
+  )
+}
+
+function DeleteAccountConfirmation({ onCancel, onConfirm, working }) {
+  const cancelButtonRef = useRef(null)
+  const reduceMotion = useReducedMotion()
+
+  useEffect(() => {
+    document.body.classList.add('modal-open')
+    cancelButtonRef.current?.focus()
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape' && !working) onCancel()
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.body.classList.remove('modal-open')
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [onCancel, working])
+
+  return (
+    <motion.div
+      animate={{ opacity: 1 }}
+      className="confirm-modal-backdrop"
+      exit={{ opacity: 0 }}
+      initial={reduceMotion ? false : { opacity: 0 }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget && !working) onCancel()
+      }}
+      role="presentation"
+      transition={{ duration: reduceMotion ? 0 : 0.18 }}
+    >
+      <motion.section
+        animate={{ opacity: 1, y: 0 }}
+        aria-describedby="delete-account-description"
+        aria-labelledby="delete-account-title"
+        aria-modal="true"
+        className="confirm-modal"
+        exit={{ opacity: 0, y: 12 }}
+        initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+        role="dialog"
+        transition={{ duration: reduceMotion ? 0 : 0.2 }}
+      >
+        <p className="eyebrow">ACCOUNT DELETION</p>
+        <h2 id="delete-account-title">Delete your account?</h2>
+        <p id="delete-account-description">This permanently removes your account and learning history. This action cannot be undone.</p>
+        <div className="confirm-modal-actions flex-col-reverse sm:flex-row">
+          <button className="secondary-button w-full sm:w-auto" disabled={working} onClick={onCancel} ref={cancelButtonRef} type="button">Keep my account</button>
+          <button className="danger-button w-full sm:w-auto" disabled={working} onClick={onConfirm} type="button">{working ? 'Deleting...' : 'Delete permanently'}</button>
+        </div>
+      </motion.section>
+    </motion.div>
   )
 }
