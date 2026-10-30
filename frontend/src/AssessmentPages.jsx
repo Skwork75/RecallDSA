@@ -41,6 +41,7 @@ export function AssessmentCard() {
   const [assessment, setAssessment] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [retryCount, setRetryCount] = useState(0)
 
   useEffect(() => {
     let active = true
@@ -49,7 +50,14 @@ export function AssessmentCard() {
       .catch((requestError) => { if (active) setError(requestError.message) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [authenticatedRequest])
+  }, [authenticatedRequest, retryCount])
+
+  const retryAssessment = () => {
+    setAssessment(null)
+    setError('')
+    setLoading(true)
+    setRetryCount((count) => count + 1)
+  }
 
   return (
     <section className="assessment-section">
@@ -58,7 +66,7 @@ export function AssessmentCard() {
         <a className="assessment-history-link" href="/assessments/history">View history ↗</a>
       </div>
       {loading && <div className="empty-state">Loading your assessment...</div>}
-      {error && <div className="empty-state error-state">{error}</div>}
+      {error && <div className="empty-state error-state assessment-error" role="alert"><p>{error}</p><button className="secondary-button" disabled={loading} onClick={retryAssessment} type="button">{loading ? 'Retrying...' : 'Try again'}</button></div>}
       {!loading && !error && !assessment && (
         <div className="empty-state">There are no tracked problems to include yet. Add problems to your revision queue to get started.</div>
       )}
@@ -87,6 +95,7 @@ export function AssessmentView() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [retryCount, setRetryCount] = useState(0)
   const finishing = useRef(false)
 
   const finish = useCallback(async () => {
@@ -112,7 +121,15 @@ export function AssessmentView() {
       .catch((requestError) => { if (active) setError(requestError.message) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [authenticatedRequest])
+  }, [authenticatedRequest, retryCount])
+
+  const retryAssessment = () => {
+    setAssessment(null)
+    setActiveIndex(0)
+    setError('')
+    setLoading(true)
+    setRetryCount((count) => count + 1)
+  }
 
   useEffect(() => {
     if (!assessment?.started_at || assessment.status !== 'in_progress') return undefined
@@ -168,7 +185,7 @@ export function AssessmentView() {
     <main className="assessment-page">
       <div className="assessment-page-content">
         {loading && <div className="empty-state">Loading assessment...</div>}
-        {error && <div className="empty-state error-state" role="alert">{error}</div>}
+        {error && <div className="empty-state error-state assessment-error" role="alert"><p>{error}</p><button className="secondary-button" disabled={loading} onClick={retryAssessment} type="button">{loading ? 'Retrying...' : 'Try again'}</button></div>}
         {!loading && !error && !assessment && <div className="empty-state">No assessment is available this week. <a href="/">Return to your dashboard</a>.</div>}
         {assessment?.status === 'scheduled' && (
           <section className="assessment-start-panel">
@@ -222,6 +239,7 @@ export function AssessmentHistory() {
   const [selected, setSelected] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [retryCount, setRetryCount] = useState(0)
 
   useEffect(() => {
     let active = true
@@ -230,14 +248,21 @@ export function AssessmentHistory() {
       .catch((requestError) => { if (active) setError(requestError.message) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [authenticatedRequest])
+  }, [authenticatedRequest, retryCount])
+
+  const retryHistory = () => {
+    setAssessments([])
+    setError('')
+    setLoading(true)
+    setRetryCount((count) => count + 1)
+  }
 
   return (
     <main className="assessment-page">
       <div className="assessment-page-content">
         <div className="section-heading"><div><p className="eyebrow">YOUR PROGRESS</p><h1>Assessment history</h1></div><a className="back-link" href="/">← Dashboard</a></div>
         {loading && <div className="empty-state">Loading assessment history...</div>}
-        {error && <div className="empty-state error-state" role="alert">{error}</div>}
+        {error && <div className="empty-state error-state assessment-error" role="alert"><p>{error}</p><button className="secondary-button" disabled={loading} onClick={retryHistory} type="button">{loading ? 'Retrying...' : 'Try again'}</button></div>}
         {!loading && !error && assessments.length === 0 && <div className="empty-state">Your completed assessments will appear here.</div>}
         <div className="assessment-history-list">
           {assessments.map((assessment) => (

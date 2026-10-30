@@ -386,6 +386,14 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 	max-width: 420px;
 }
 
+.assessment-error p {
+	margin: 0;
+}
+
+.assessment-error .secondary-button {
+	margin-top: 16px;
+}
+
 .library-empty-state .primary-button {
 	align-items: center;
 	gap: 18px;

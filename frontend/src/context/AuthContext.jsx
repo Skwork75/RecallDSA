@@ -19,13 +19,18 @@ function saveAuth(auth) {
 }
 
 async function request(path, options = {}) {
-  const response = await fetch(path, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  })
+  let response
+  try {
+    response = await fetch(path, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+    })
+  } catch {
+    throw new Error('Unable to connect to the RecallDSA server. Check your connection and make sure the backend is running, then try again.')
+  }
   if (response.status === 204 || response.status === 205) {
     return null
   }
