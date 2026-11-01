@@ -88,9 +88,18 @@ class UserProblem(models.Model):
 
 
 class UserProblemProgress(models.Model):
+    SOURCE_CHOICES = [
+        ('manual', 'Manual'),
+        ('leetcode_sync', 'LeetCode sync'),
+        ('sheet', 'DSA sheet'),
+        ('image_import', 'Image import'),
+    ]
+
     user = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, related_name='sm2_progress')
     problem = models.ForeignKey(Problem, on_delete=models.CASCADE, related_name='sm2_progress')
     is_tracked = models.BooleanField(default=True)
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='manual')
+    notes = models.TextField(blank=True, default='')
     easiness_factor = models.FloatField(default=2.5)
     interval = models.PositiveIntegerField(default=0)
     repetition_number = models.PositiveIntegerField(default=0)

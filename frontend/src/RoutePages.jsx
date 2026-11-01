@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAuth } from './context/useAuth.js'
+import { AddProblemModalLayer } from './AddProblemModal.jsx'
 
-function useRequest(path) {
+function useRequest(path, reloadKey = 0) {
   const { authenticatedRequest } = useAuth()
   const [state, setState] = useState({ data: null, loading: true, error: '' })
 
@@ -16,19 +17,32 @@ function useRequest(path) {
         if (active) setState({ data: null, loading: false, error: error.message })
       })
     return () => { active = false }
-  }, [authenticatedRequest, path])
+  }, [authenticatedRequest, path, reloadKey])
 
   return state
 }
 
 export function ProblemsPage() {
-  const { data, loading, error } = useRequest('/api/problems/tracked/')
+  const [reloadKey, setReloadKey] = useState(0)
+  const [addModalOpen, setAddModalOpen] = useState(false)
+  const { data, loading, error } = useRequest('/api/problems/tracked/', reloadKey)
   const isValidResponse = Array.isArray(data)
   const problems = isValidResponse ? data : []
 
   return (
     <main className="route-page">
-      <PageHeading eyebrow="YOUR LIBRARY" title="Tracked problems" description="Problems you have practiced and added to your personal recall history." />
+      <div className="problem-page-heading">
+        <PageHeading eyebrow="YOUR LIBRARY" title="Tracked problems" description="Problems you have practiced and added to your personal recall history." />
+        <button
+          aria-label="Add problem"
+          className="primary-button add-problem-fab"
+          onClick={() => setAddModalOpen(true)}
+          title="Add problem"
+          type="button"
+        >
+          +
+        </button>
+      </div>
       {loading && <div className="empty-state">Loading your problems...</div>}
       {error && <div className="empty-state error-state" role="alert">{error}</div>}
       {!loading && !error && !isValidResponse && <div className="empty-state error-state" role="alert">The tracked problems response had an unexpected format.</div>}
@@ -45,6 +59,11 @@ export function ProblemsPage() {
           ))}
         </div>
       )}
+      <AddProblemModalLayer
+        onAdded={() => setReloadKey((key) => key + 1)}
+        onClose={() => setAddModalOpen(false)}
+        open={addModalOpen}
+      />
     </main>
   )
 }

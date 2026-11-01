@@ -5,6 +5,7 @@ from .models import (
     Problem,
     Solved,
     UserProblem,
+    UserProblemProgress,
     GlobalProblem,
     DSASheet,
     DSASheetProblem,
@@ -143,6 +144,27 @@ class ProblemSerializer(serializers.ModelSerializer):
     class Meta:
         model = Problem
         fields = ['id', 'slug', 'title', 'leetcode_id', 'link', 'difficulty', 'pattern', 'patterns', 'description', 'created_at']
+
+
+class UserProblemProgressSerializer(serializers.ModelSerializer):
+    problem = ProblemSerializer(read_only=True)
+
+    class Meta:
+        model = UserProblemProgress
+        fields = [
+            'id',
+            'problem',
+            'is_tracked',
+            'source',
+            'notes',
+            'easiness_factor',
+            'interval',
+            'repetition_number',
+            'next_review_date',
+            'confidence_rating',
+            'last_reviewed_at',
+            'created_at',
+        ]
 
 
 class GlobalProblemSerializer(serializers.ModelSerializer):

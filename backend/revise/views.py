@@ -20,6 +20,7 @@ from .serializers import (
     RegisterSerializer,
     ChangePasswordSerializer,
     UserProblemSerializer,
+    UserProblemProgressSerializer,
     UserProfileSerializer,
     UserSettingsSerializer,
     UserSerializer,
@@ -120,6 +121,184 @@ def tracked_problems(request):
     ])
 
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def preview_problem_from_url(request):
+    from .integrations import fetch_problem_metadata, parse_leetcode_url
+
+    try:
+        slug = parse_leetcode_url(request.data.get('url'))
+    except ValueError as error:
+        return Response({'url': [str(error)]}, status=status.HTTP_400_BAD_REQUEST)
+
+    existing_problem = Problem.objects.filter(slug=slug).first()
+    if existing_problem:
+        metadata = {
+            'title': existing_problem.title,
+            'slug': existing_problem.slug,
+            'leetcode_id': existing_problem.leetcode_id,
+            'difficulty': existing_problem.difficulty,
+            'description': existing_problem.description,
+            'pattern_names': list(existing_problem.patterns.values_list('p_name', flat=True)),
+        }
+        tracked = UserProblemProgress.objects.filter(
+            user=request.user,
+            problem=existing_problem,
+            is_tracked=True,
+        ).exists()
+        return Response({**metadata, 'is_tracked': tracked})
+
+    try:
+        metadata = fetch_problem_metadata(slug)
+    except LookupError as error:
+        return Response({'detail': str(error)}, status=status.HTTP_404_NOT_FOUND)
+    except (ValueError, OSError) as error:
+        return Response({'detail': str(error)}, status=status.HTTP_502_BAD_GATEWAY)
+
+    return Response({**metadata, 'is_tracked': False})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def add_problem_from_url(request):
+    from .integrations import fetch_problem_metadata, parse_leetcode_url
+
+    try:
+        slug = parse_leetcode_url(request.data.get('url'))
+    except ValueError as error:
+        return Response({'url': [str(error)]}, status=status.HTTP_400_BAD_REQUEST)
+
+    confidence = request.data.get('initial_confidence', 3)
+    if isinstance(confidence, bool):
+        return Response(
+            {'initial_confidence': ['Choose a confidence rating from 1 to 5.']},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        confidence = int(confidence)
+    except (TypeError, ValueError):
+        return Response(
+            {'initial_confidence': ['Choose a confidence rating from 1 to 5.']},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if not 1 <= confidence <= 5:
+        return Response(
+            {'initial_confidence': ['Choose a confidence rating from 1 to 5.']},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    notes = request.data.get('notes', '')
+    if not isinstance(notes, str) or len(notes) > 10000:
+        return Response(
+            {'notes': ['Notes must be text no longer than 10,000 characters.']},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    problem = Problem.objects.filter(slug=slug).first()
+    metadata = None
+    if problem is None:
+        try:
+            metadata = fetch_problem_metadata(slug)
+        except LookupError as error:
+            return Response({'detail': str(error)}, status=status.HTTP_404_NOT_FOUND)
+        except (ValueError, OSError) as error:
+            return Response({'detail': str(error)}, status=status.HTTP_502_BAD_GATEWAY)
+
+        title_override = request.data.get('title')
+        difficulty_override = request.data.get('difficulty')
+        pattern_overrides = request.data.get('pattern_names')
+        if title_override is not None:
+            if not isinstance(title_override, str) or not title_override.strip():
+                return Response({'title': ['Enter a problem title.']}, status=status.HTTP_400_BAD_REQUEST)
+            metadata['title'] = title_override.strip()[:255]
+        if difficulty_override is not None:
+            if difficulty_override not in ('Easy', 'Medium', 'Hard'):
+                return Response({'difficulty': ['Choose Easy, Medium, or Hard.']}, status=status.HTTP_400_BAD_REQUEST)
+            metadata['difficulty'] = difficulty_override
+        if pattern_overrides is not None:
+            if (
+                not isinstance(pattern_overrides, list)
+                or any(not isinstance(name, str) or not name.strip() for name in pattern_overrides)
+            ):
+                return Response({'pattern_names': ['Patterns must be a list of non-empty names.']}, status=status.HTTP_400_BAD_REQUEST)
+            metadata['pattern_names'] = list(dict.fromkeys(
+                name.strip()[:100] for name in pattern_overrides
+            ))[:10]
+
+    progress, created, reactivated = _persist_problem_progress(
+        user=request.user,
+        slug=slug,
+        metadata=metadata,
+        confidence=confidence,
+        notes=notes,
+    )
+
+    return Response(
+        {
+            **UserProblemProgressSerializer(
+                progress,
+                context={'request': request},
+            ).data,
+            'added': created or reactivated,
+        },
+        status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+    )
+
+
+@transaction.atomic
+def _persist_problem_progress(user, slug, metadata, confidence, notes):
+    problem = Problem.objects.select_for_update().filter(slug=slug).first()
+    if problem is None and metadata:
+        problem = Problem.objects.select_for_update().filter(
+            leetcode_id=metadata['leetcode_id'],
+        ).first()
+        if problem is None:
+            pattern_names = metadata['pattern_names']
+            primary_pattern = Pattern.objects.filter(
+                p_name__iexact=pattern_names[0],
+            ).first() if pattern_names else None
+            if pattern_names and primary_pattern is None:
+                primary_pattern = Pattern.objects.create(p_name=pattern_names[0])
+
+            problem, _ = Problem.objects.get_or_create(
+                slug=slug,
+                defaults={
+                    'title': metadata['title'],
+                    'leetcode_id': metadata['leetcode_id'],
+                    'link': f'https://leetcode.com/problems/{slug}/',
+                    'difficulty': metadata['difficulty'],
+                    'description': metadata['description'],
+                    'pattern': primary_pattern,
+                },
+            )
+        for pattern_name in metadata['pattern_names']:
+            pattern, _ = Pattern.objects.get_or_create(p_name=pattern_name)
+            problem.patterns.add(pattern)
+
+    progress, created = UserProblemProgress.objects.get_or_create(
+        user=user,
+        problem=problem,
+        defaults={
+            'source': 'manual',
+            'notes': notes,
+            'confidence_rating': confidence,
+            'is_tracked': True,
+        },
+    )
+    reactivated = not created and not progress.is_tracked
+    changed_fields = []
+    if reactivated:
+        progress.is_tracked = True
+        progress.source = 'manual'
+        changed_fields.extend(['is_tracked', 'source'])
+    if notes and not created:
+        progress.notes = notes
+        changed_fields.append('notes')
+    if changed_fields:
+        progress.save(update_fields=[*changed_fields, 'updated_at'])
+    return progress, created, reactivated
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def dsasheets(request):
@@ -192,6 +371,7 @@ def _track_sheet_problems(user, problems):
             problem=problem,
             defaults={
                 'is_tracked': True,
+                'source': 'sheet',
                 'easiness_factor': 2.5,
                 'interval': 0,
                 'repetition_number': 0,
@@ -202,6 +382,7 @@ def _track_sheet_problems(user, problems):
         else:
             added += UserProblemProgress.objects.filter(user=user, problem=problem, is_tracked=False).update(
                 is_tracked=True,
+                source='sheet',
                 updated_at=timezone.now(),
             )
     return added

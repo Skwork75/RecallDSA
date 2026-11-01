@@ -1,6 +1,7 @@
 from datetime import timedelta
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.utils import timezone
@@ -19,6 +20,158 @@ from .models import (
 )
 from .services import generate_weekly_assessment
 from .sm2 import calculate_next_review
+from .integrations import parse_leetcode_url
+
+
+class LeetCodeProblemImportTests(APITestCase):
+	def setUp(self):
+		self.user = get_user_model().objects.create_user(
+			username='problem-import-user',
+			password='secure-password-123',
+		)
+		self.client.force_authenticate(self.user)
+		self.metadata = {
+			'title': 'Two Sum',
+			'slug': 'two-sum',
+			'leetcode_id': 1,
+			'difficulty': 'Easy',
+			'description': '<p>Find two numbers.</p>',
+			'pattern_names': ['Array', 'Hash Table'],
+		}
+
+	def test_parse_leetcode_url_accepts_optional_trailing_slash_and_query(self):
+		self.assertEqual(
+			parse_leetcode_url('https://leetcode.com/problems/two-sum?envType=study-plan'),
+			'two-sum',
+		)
+		self.assertEqual(
+			parse_leetcode_url('https://www.leetcode.com/problems/two-sum/'),
+			'two-sum',
+		)
+
+	def test_parse_leetcode_url_rejects_non_problem_hosts_and_paths(self):
+		for url in (
+			'https://example.com/problems/two-sum/',
+			'https://leetcode.com/discuss/two-sum/',
+			'https://leetcode.com/problems/../',
+			'javascript:alert(1)',
+		):
+			with self.subTest(url=url), self.assertRaises(ValueError):
+				parse_leetcode_url(url)
+
+	@patch('revise.integrations.fetch_problem_metadata')
+	def test_preview_returns_metadata_without_creating_a_problem(self, fetch_metadata):
+		fetch_metadata.return_value = self.metadata
+
+		response = self.client.post(
+			'/api/problems/preview-url/',
+			{'url': 'https://leetcode.com/problems/two-sum/'},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.json()['pattern_names'], ['Array', 'Hash Table'])
+		self.assertFalse(response.json()['is_tracked'])
+		self.assertFalse(Problem.objects.filter(slug='two-sum').exists())
+		fetch_metadata.assert_called_once_with('two-sum')
+
+	def test_preview_rejects_invalid_url_without_contacting_leetcode(self):
+		response = self.client.post(
+			'/api/problems/preview-url/',
+			{'url': 'https://example.com/problems/two-sum/'},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, 400)
+		self.assertIn('url', response.json())
+
+	@patch('revise.integrations.fetch_problem_metadata')
+	def test_add_creates_global_problem_and_user_progress(self, fetch_metadata):
+		fetch_metadata.return_value = self.metadata
+
+		response = self.client.post(
+			'/api/problems/add-from-url/',
+			{
+				'url': 'https://leetcode.com/problems/two-sum/?source=import',
+				'initial_confidence': 4,
+			},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, 201)
+		problem = Problem.objects.get(slug='two-sum')
+		progress = UserProblemProgress.objects.get(user=self.user, problem=problem)
+		self.assertEqual(progress.source, 'manual')
+		self.assertEqual(progress.confidence_rating, 4)
+		self.assertEqual(set(problem.patterns.values_list('p_name', flat=True)), {'Array', 'Hash Table'})
+		self.assertEqual(response.json()['problem']['leetcode_id'], 1)
+
+	@patch('revise.integrations.fetch_problem_metadata')
+	def test_repeated_add_is_idempotent_and_does_not_replace_review_state(self, fetch_metadata):
+		problem = Problem.objects.create(
+			title='Two Sum',
+			leetcode_id=1,
+			link='https://leetcode.com/problems/two-sum/',
+			difficulty='Easy',
+		)
+		progress = UserProblemProgress.objects.create(
+			user=self.user,
+			problem=problem,
+			is_tracked=True,
+			confidence_rating=5,
+			interval=12,
+			repetition_number=3,
+		)
+
+		response = self.client.post(
+			'/api/problems/add-from-url/',
+			{'url': 'https://leetcode.com/problems/two-sum/', 'initial_confidence': 1},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, 200)
+		progress.refresh_from_db()
+		self.assertEqual(progress.confidence_rating, 5)
+		self.assertEqual(progress.interval, 12)
+		fetch_metadata.assert_not_called()
+
+	@patch('revise.integrations.fetch_problem_metadata')
+	def test_add_reactivates_untracked_progress(self, fetch_metadata):
+		problem = Problem.objects.create(
+			title='Two Sum',
+			leetcode_id=1,
+			link='https://leetcode.com/problems/two-sum/',
+			difficulty='Easy',
+		)
+		progress = UserProblemProgress.objects.create(
+			user=self.user,
+			problem=problem,
+			is_tracked=False,
+		)
+
+		response = self.client.post(
+			'/api/problems/add-from-url/',
+			{'url': 'https://leetcode.com/problems/two-sum/'},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, 200)
+		progress.refresh_from_db()
+		self.assertTrue(progress.is_tracked)
+		fetch_metadata.assert_not_called()
+
+	@patch('revise.integrations.fetch_problem_metadata')
+	def test_metadata_network_failure_returns_gateway_error(self, fetch_metadata):
+		fetch_metadata.side_effect = OSError('LeetCode unavailable')
+
+		response = self.client.post(
+			'/api/problems/add-from-url/',
+			{'url': 'https://leetcode.com/problems/two-sum/'},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, 502)
+		self.assertFalse(Problem.objects.filter(slug='two-sum').exists())
 
 
 class AuthenticationTests(APITestCase):
