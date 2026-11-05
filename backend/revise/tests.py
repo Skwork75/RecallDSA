@@ -173,6 +173,77 @@ class LeetCodeProblemImportTests(APITestCase):
 		self.assertEqual(response.status_code, 502)
 		self.assertFalse(Problem.objects.filter(slug='two-sum').exists())
 
+	@patch('revise.integrations.fetch_problem_metadata_by_id')
+	def test_add_by_id_fetches_metadata_and_tracks_problem(self, fetch_metadata):
+		fetch_metadata.return_value = self.metadata
+
+		response = self.client.post(
+			'/api/problems/add-by-id/',
+			{'leetcode_id': 1},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, 201)
+		self.assertEqual(response.json()['problem']['leetcode_id'], 1)
+		progress = UserProblemProgress.objects.get(user=self.user)
+		self.assertTrue(progress.is_tracked)
+		self.assertEqual(progress.confidence_rating, 3)
+		fetch_metadata.assert_called_once_with(1)
+
+	@patch('revise.integrations.fetch_problem_metadata_by_id')
+	def test_add_by_id_reuses_known_problem_without_fetching_metadata(self, fetch_metadata):
+		problem = Problem.objects.create(
+			title='Two Sum',
+			leetcode_id=1,
+			link='https://leetcode.com/problems/two-sum/',
+			difficulty='Easy',
+		)
+
+		response = self.client.post(
+			'/api/problems/add-by-id/',
+			{'leetcode_id': '1'},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, 201)
+		self.assertEqual(response.json()['problem']['id'], problem.id)
+		fetch_metadata.assert_not_called()
+
+	def test_add_by_id_rejects_invalid_problem_numbers(self):
+		for leetcode_id in ('abc', 0, -1):
+			with self.subTest(leetcode_id=leetcode_id):
+				response = self.client.post(
+					'/api/problems/add-by-id/',
+					{'leetcode_id': leetcode_id},
+					format='json',
+				)
+				self.assertEqual(response.status_code, 400)
+
+	def test_untrack_only_removes_the_authenticated_users_problem_from_the_list(self):
+		problem = Problem.objects.create(
+			title='Two Sum',
+			leetcode_id=1,
+			link='https://leetcode.com/problems/two-sum/',
+			difficulty='Easy',
+		)
+		progress = UserProblemProgress.objects.create(user=self.user, problem=problem)
+
+		response = self.client.delete(f'/api/problems/tracked/{progress.id}/')
+
+		self.assertEqual(response.status_code, 204)
+		progress.refresh_from_db()
+		self.assertFalse(progress.is_tracked)
+
+		other_user = get_user_model().objects.create_user(
+			username='other-problem-user',
+			password='secure-password-123',
+		)
+		other_progress = UserProblemProgress.objects.create(user=other_user, problem=problem)
+		response = self.client.delete(f'/api/problems/tracked/{other_progress.id}/')
+		self.assertEqual(response.status_code, 404)
+		other_progress.refresh_from_db()
+		self.assertTrue(other_progress.is_tracked)
+
 
 class AuthenticationTests(APITestCase):
 	def test_register_login_current_user_and_logout(self):

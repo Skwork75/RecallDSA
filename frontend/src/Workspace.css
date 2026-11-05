@@ -583,6 +583,32 @@ body {
   justify-content: space-between;
 }
 
+.problem-card-actions {
+  align-items: center;
+  display: flex;
+  flex-shrink: 0;
+  gap: 12px;
+}
+
+.problem-remove-button {
+  background: transparent;
+  border: 0;
+  color: var(--rose);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  padding: 4px 0;
+}
+
+.problem-remove-button:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.problem-remove-button:disabled {
+  cursor: wait;
+  opacity: .65;
+}
+
 .add-problem-fab {
   align-items: center;
   border-radius: 50%;

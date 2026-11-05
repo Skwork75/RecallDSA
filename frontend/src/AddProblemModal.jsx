@@ -43,7 +43,8 @@ export default function AddProblemModal({ onClose, onAdded }) {
   const { authenticatedRequest } = useAuth()
   const reduceMotion = useReducedMotion()
   const formRef = useRef(null)
-  const [tab, setTab] = useState('url')
+  const [tab, setTab] = useState('id')
+  const [leetcodeId, setLeetcodeId] = useState('')
   const [url, setUrl] = useState('')
   const [preview, setPreview] = useState(null)
   const [confidence, setConfidence] = useState(3)
@@ -128,6 +129,32 @@ export default function AddProblemModal({ onClose, onAdded }) {
     }
   }
 
+  const addProblemById = async (event) => {
+    event.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      const progress = await authenticatedRequest('/api/problems/add-by-id/', {
+        method: 'POST',
+        body: JSON.stringify({ leetcode_id: leetcodeId, initial_confidence: confidence }),
+      })
+      toast.success(progress.added ? 'Problem added to your revision queue' : 'This problem is already in your revision queue')
+      onAdded()
+      onClose()
+    } catch (requestError) {
+      setError(requestError.message)
+      toast.error(requestError.message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleSubmit = (event) => {
+    if (tab === 'id') addProblemById(event)
+    else if (tab === 'url') fetchPreview(event)
+    else addProblem(event)
+  }
+
   return (
     <motion.div
       animate={{ opacity: 1 }}
@@ -151,11 +178,20 @@ export default function AddProblemModal({ onClose, onAdded }) {
         role="dialog"
         transition={{ duration: reduceMotion ? 0 : 0.2 }}
       >
-        <p className="eyebrow">GROW YOUR REVISION QUEUE</p>
+        <p className="eyebrow">GROW YOUR PROBLEM LIST</p>
         <h2 id="add-problem-title">Add a problem</h2>
-        <p className="review-modal-subtitle">Import a LeetCode problem or add your own notes and pattern labels.</p>
+        <p className="review-modal-subtitle">Enter a LeetCode problem number to add it automatically, or choose another entry method.</p>
 
         <div className="add-problem-tabs" role="tablist" aria-label="Problem entry method">
+          <button
+            aria-selected={tab === 'id'}
+            className={tab === 'id' ? 'active' : ''}
+            onClick={() => { setTab('id'); setError('') }}
+            role="tab"
+            type="button"
+          >
+            Problem ID
+          </button>
           <button
             aria-selected={tab === 'url'}
             className={tab === 'url' ? 'active' : ''}
@@ -176,8 +212,25 @@ export default function AddProblemModal({ onClose, onAdded }) {
           </button>
         </div>
 
-        <form className="add-problem-form" onSubmit={tab === 'url' ? fetchPreview : addProblem} ref={formRef}>
-          <label>
+        <form className="add-problem-form" onSubmit={handleSubmit} ref={formRef}>
+          {tab === 'id' && (
+            <label>
+              LeetCode problem number
+              <input
+                autoComplete="off"
+                autoFocus
+                inputMode="numeric"
+                min="1"
+                onChange={(event) => setLeetcodeId(event.target.value)}
+                placeholder="e.g. 1"
+                required
+                type="number"
+                value={leetcodeId}
+              />
+            </label>
+          )}
+
+          {tab !== 'id' && <label>
             LeetCode problem URL
             <input
               autoComplete="url"
@@ -187,7 +240,7 @@ export default function AddProblemModal({ onClose, onAdded }) {
               type="url"
               value={url}
             />
-          </label>
+          </label>}
 
           {tab === 'manual' && (
             <div className="add-problem-manual-fields">
@@ -281,14 +334,14 @@ export default function AddProblemModal({ onClose, onAdded }) {
           <button className="secondary-button" disabled={submitting} onClick={onClose} type="button">Cancel</button>
           <button
             className="primary-button"
-            disabled={submitting || loadingPreview || (tab === 'url' && (!preview || preview.is_tracked))}
+            disabled={submitting || loadingPreview || (tab === 'url' && (!preview || preview.is_tracked)) || (tab === 'id' && !/^[1-9]\d*$/.test(leetcodeId))}
             onClick={(event) => {
-              if (tab === 'manual') formRef.current?.requestSubmit()
+              if (tab === 'manual' || tab === 'id') formRef.current?.requestSubmit()
               else addProblem(event)
             }}
             type="button"
           >
-            {submitting ? 'Adding…' : 'Add to Revisions'}
+            {submitting ? 'Adding…' : tab === 'id' ? 'Add problem' : 'Add to Revisions'}
           </button>
         </div>
       </motion.section>

@@ -4,6 +4,8 @@ from . import views
 urlpatterns = [
     path('home/', views.home, name='home'),
     path('problems/tracked/', views.tracked_problems, name='tracked-problems'),
+    path('problems/tracked/<int:progress_id>/', views.untrack_problem, name='untrack-problem'),
+    path('problems/add-by-id/', views.add_problem_by_id, name='add-problem-by-id'),
     path('problems/preview-url/', views.preview_problem_from_url, name='preview-problem-from-url'),
     path('problems/add-from-url/', views.add_problem_from_url, name='add-problem-from-url'),
     path('problems/', views.home, name='global-problems'),

@@ -101,6 +101,69 @@ def fetch_problem_metadata(slug):
     return metadata
 
 
+def fetch_problem_metadata_by_id(leetcode_id):
+    """Resolve a LeetCode frontend ID through the public problem list."""
+    cache_key = f'recalldsa:leetcode:problem-id:{leetcode_id}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    request = Request(
+        LEETCODE_GRAPHQL_URL,
+        data=json.dumps({
+            'query': (
+                'query problemsetQuestionList($categorySlug: String, $limit: Int, '
+                '$skip: Int, $filters: QuestionListFilterInput) { '
+                'problemsetQuestionList: questionList(categorySlug: $categorySlug, '
+                'limit: $limit, skip: $skip, filters: $filters) { '
+                'questions: data { questionFrontendId titleSlug } } }'
+            ),
+            'variables': {
+                'categorySlug': '',
+                'limit': 50,
+                'skip': 0,
+                'filters': {'searchKeywords': str(leetcode_id)},
+            },
+        }).encode('utf-8'),
+        headers={
+            'Content-Type': 'application/json',
+            'User-Agent': 'RecallDSA/1.0',
+        },
+        method='POST',
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode('utf-8'))
+    except (HTTPError, URLError, TimeoutError) as error:
+        raise OSError('Unable to reach LeetCode. Please try again later.') from error
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError('LeetCode returned an invalid response.') from error
+
+    if not isinstance(payload, dict) or payload.get('errors'):
+        raise ValueError('LeetCode could not search its problem list.')
+
+    data = payload.get('data')
+    result = data.get('problemsetQuestionList') if isinstance(data, dict) else None
+    questions = result.get('questions') if isinstance(result, dict) else None
+    if not isinstance(questions, list):
+        raise ValueError('LeetCode returned an unexpected problem list.')
+
+    question = next((
+        item for item in questions
+        if isinstance(item, dict)
+        and str(item.get('questionFrontendId', '')).strip() == str(leetcode_id)
+        and isinstance(item.get('titleSlug'), str)
+    ), None)
+    if question is None:
+        raise LookupError(f'LeetCode problem #{leetcode_id} could not be found.')
+
+    metadata = fetch_problem_metadata(question['titleSlug'])
+    if metadata['leetcode_id'] != leetcode_id:
+        raise ValueError('LeetCode returned a different problem number than requested.')
+    cache.set(cache_key, metadata, timeout=300)
+    return metadata
+
+
 def fetch_recent_accepted_submissions(username):
     request = Request(
         LEETCODE_GRAPHQL_URL,

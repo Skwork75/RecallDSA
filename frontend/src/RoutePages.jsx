@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import toast from 'react-hot-toast'
 import { useAuth } from './context/useAuth.js'
 import { AddProblemModalLayer } from './AddProblemModal.jsx'
 
@@ -25,9 +26,26 @@ function useRequest(path, reloadKey = 0) {
 export function ProblemsPage() {
   const [reloadKey, setReloadKey] = useState(0)
   const [addModalOpen, setAddModalOpen] = useState(false)
+  const [removingId, setRemovingId] = useState(null)
+  const { authenticatedRequest } = useAuth()
   const { data, loading, error } = useRequest('/api/problems/tracked/', reloadKey)
   const isValidResponse = Array.isArray(data)
   const problems = isValidResponse ? data : []
+
+  const removeProblem = async (progressId, title) => {
+    if (!window.confirm(`Remove "${title}" from your tracked problems?`)) return
+
+    setRemovingId(progressId)
+    try {
+      await authenticatedRequest(`/api/problems/tracked/${progressId}/`, { method: 'DELETE' })
+      toast.success('Problem removed from your list')
+      setReloadKey((key) => key + 1)
+    } catch (requestError) {
+      toast.error(requestError.message)
+    } finally {
+      setRemovingId(null)
+    }
+  }
 
   return (
     <main className="route-page">
@@ -54,7 +72,21 @@ export function ProblemsPage() {
               <div className="card-topline"><span className="difficulty-label">{problem.difficulty}</span><span className="question-number">#{problem.leetcode_id}</span></div>
               <h3>{problem.title}</h3>
               <p className="pattern-label">{problem.pattern?.p_name || 'Uncategorized pattern'}</p>
-              <div className="card-footer"><Link to={`/problems/${problem.id}`}>View details <span>↗</span></Link>{problem.link && <a href={problem.link} rel="noreferrer" target="_blank">LeetCode ↗</a>}</div>
+              <div className="card-footer">
+                <Link to={`/problems/${problem.id}`}>View details <span>↗</span></Link>
+                <div className="problem-card-actions">
+                  {problem.link && <a href={problem.link} rel="noreferrer" target="_blank">LeetCode ↗</a>}
+                  <button
+                    aria-label={`Remove ${problem.title} from your problems`}
+                    className="problem-remove-button"
+                    disabled={removingId === id}
+                    onClick={() => removeProblem(id, problem.title)}
+                    type="button"
+                  >
+                    {removingId === id ? 'Removing…' : 'Remove'}
+                  </button>
+                </div>
+              </div>
             </article>
           ))}
         </div>

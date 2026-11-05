@@ -123,6 +123,91 @@ def tracked_problems(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+def add_problem_by_id(request):
+    from .integrations import fetch_problem_metadata_by_id
+
+    raw_id = request.data.get('leetcode_id')
+    id_text = str(raw_id).strip() if not isinstance(raw_id, bool) else ''
+    if not id_text.isdigit() or len(id_text) > 10:
+        return Response(
+            {'leetcode_id': ['Enter a valid LeetCode problem number.']},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    leetcode_id = int(id_text)
+    if not 1 <= leetcode_id <= 2147483647:
+        return Response(
+            {'leetcode_id': ['Enter a valid LeetCode problem number.']},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    raw_confidence = request.data.get('initial_confidence', 3)
+    if isinstance(raw_confidence, bool):
+        return Response(
+            {'initial_confidence': ['Choose a confidence rating from 1 to 5.']},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        confidence = int(raw_confidence)
+    except (TypeError, ValueError):
+        return Response(
+            {'initial_confidence': ['Choose a confidence rating from 1 to 5.']},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if not 1 <= confidence <= 5:
+        return Response(
+            {'initial_confidence': ['Choose a confidence rating from 1 to 5.']},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    problem = Problem.objects.filter(leetcode_id=leetcode_id).first()
+    metadata = None
+    if problem is None:
+        try:
+            metadata = fetch_problem_metadata_by_id(leetcode_id)
+        except LookupError as error:
+            return Response({'detail': str(error)}, status=status.HTTP_404_NOT_FOUND)
+        except (ValueError, OSError) as error:
+            return Response({'detail': str(error)}, status=status.HTTP_502_BAD_GATEWAY)
+
+    progress, created, reactivated = _persist_problem_progress(
+        user=request.user,
+        slug=problem.slug if problem else metadata['slug'],
+        metadata=metadata,
+        confidence=confidence,
+        notes='',
+    )
+    return Response(
+        {
+            **UserProblemProgressSerializer(
+                progress,
+                context={'request': request},
+            ).data,
+            'added': created or reactivated,
+        },
+        status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+    )
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def untrack_problem(request, progress_id):
+    progress = UserProblemProgress.objects.filter(
+        id=progress_id,
+        user=request.user,
+        is_tracked=True,
+    ).first()
+    if progress is None:
+        return Response(
+            {'detail': 'This problem is not in your tracked list.'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    progress.is_tracked = False
+    progress.save(update_fields=['is_tracked', 'updated_at'])
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def preview_problem_from_url(request):
     from .integrations import fetch_problem_metadata, parse_leetcode_url
 
