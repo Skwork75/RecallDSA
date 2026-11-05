@@ -62,7 +62,10 @@ export function AssessmentCard() {
   return (
     <section className="assessment-section">
       <div className="section-heading">
-        <div><p className="eyebrow">WEEKLY ASSESSMENT</p><h2>Check your recall</h2></div>
+        <div>
+          <p className="eyebrow">{assessment?.trigger_problem_count ? 'PROBLEM MILESTONE' : 'WEEKLY ASSESSMENT'}</p>
+          <h2>Check your recall</h2>
+        </div>
         <a className="assessment-history-link" href="/assessments/history">View history ↗</a>
       </div>
       {loading && <div className="empty-state">Loading your assessment...</div>}
@@ -74,7 +77,14 @@ export function AssessmentCard() {
         <article className="assessment-card assessment-card-feature">
           <div>
             <p className="eyebrow">{assessment.status === 'completed' ? 'READY TO REVIEW' : 'PERSONALIZED FOR YOUR REVISION QUEUE'}</p>
-            <h3>{assessment.status === 'completed' ? 'This week’s assessment is complete' : 'Your weekly assessment is ready'}</h3>
+            <h3>
+              {assessment.trigger_problem_count
+                ? `Your ${assessment.trigger_problem_count}-problem milestone test ${assessment.status === 'completed' ? 'is complete' : 'is ready'}`
+                : assessment.status === 'completed'
+                  ? 'This week’s assessment is complete'
+                  : 'Your weekly assessment is ready'}
+            </h3>
+            {assessment.trigger_problem_count && <p>Five questions selected for low confidence and pattern variety.</p>}
             <p>{assessment.total_problems} problems · {assessment.time_limit_minutes} minutes</p>
             {assessment.status === 'completed' && <strong className="assessment-card-score">{assessment.score_percentage}% score</strong>}
           </div>
@@ -189,8 +199,12 @@ export function AssessmentView() {
         {!loading && !error && !assessment && <div className="empty-state">No assessment is available this week. <a href="/">Return to your dashboard</a>.</div>}
         {assessment?.status === 'scheduled' && (
           <section className="assessment-start-panel">
-            <p className="eyebrow">YOUR WEEKLY CHECK-IN</p>
-            <h1>Ready to test your recall?</h1>
+            <p className="eyebrow">
+              {assessment.trigger_problem_count
+                ? `${assessment.trigger_problem_count} PROBLEM MILESTONE`
+                : 'YOUR WEEKLY CHECK-IN'}
+            </p>
+            <h1>{assessment.trigger_problem_count ? 'Your five-question recall test is ready.' : 'Ready to test your recall?'}</h1>
             <p>{assessment.total_problems} problems · {assessment.time_limit_minutes} minutes. Your timer starts when you begin.</p>
             <button className="primary-button" disabled={submitting} onClick={start} type="button">{submitting ? 'Starting...' : 'Start Assessment'}</button>
           </section>
@@ -198,7 +212,10 @@ export function AssessmentView() {
         {assessment?.status === 'in_progress' && (
           <section className="assessment-test">
             <div className="assessment-test-heading">
-              <div><p className="eyebrow">PROBLEM {activeIndex + 1} OF {assessment.total_problems}</p><h1>Weekly assessment</h1></div>
+              <div>
+                <p className="eyebrow">PROBLEM {activeIndex + 1} OF {assessment.total_problems}</p>
+                <h1>{assessment.trigger_problem_count ? 'Milestone assessment' : 'Weekly assessment'}</h1>
+              </div>
               <strong className={`assessment-countdown ${secondsLeft < 60 ? 'time-warning' : ''}`} aria-live="polite">{formatTime(secondsLeft)}</strong>
             </div>
             <nav className="assessment-problem-nav" aria-label="Assessment problem navigation">
@@ -267,7 +284,11 @@ export function AssessmentHistory() {
         <div className="assessment-history-list">
           {assessments.map((assessment) => (
             <button className={`assessment-history-item ${selected?.id === assessment.id ? 'selected' : ''}`} key={assessment.id} onClick={() => setSelected(assessment)} type="button">
-              <span>{new Date(assessment.created_at).toLocaleDateString()}</span>
+              <span>
+                {assessment.trigger_problem_count
+                  ? `${assessment.trigger_problem_count} tracked problems`
+                  : new Date(assessment.created_at).toLocaleDateString()}
+              </span>
               <strong>{assessment.status === 'completed' ? `${assessment.score_percentage}%` : assessment.status.replace('_', ' ')}</strong>
               <small>{assessment.total_problems} problems</small>
             </button>

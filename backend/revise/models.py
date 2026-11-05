@@ -193,11 +193,20 @@ class Assessment(models.Model):
     completed_at = models.DateTimeField(null=True, blank=True)
     score_percentage = models.PositiveSmallIntegerField(null=True, blank=True)
     total_problems = models.PositiveSmallIntegerField(default=0)
+    trigger_problem_count = models.PositiveIntegerField(null=True, blank=True)
 
     class Meta:
         ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'trigger_problem_count'],
+                name='unique_user_assessment_milestone',
+            ),
+        ]
 
     def __str__(self):
+        if self.trigger_problem_count:
+            return f'{self.user} - {self.trigger_problem_count}-problem assessment'
         return f'{self.user} - weekly assessment ({self.created_at:%Y-%m-%d})'
 
 

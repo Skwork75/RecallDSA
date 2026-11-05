@@ -40,7 +40,11 @@ from .models import (
     UserSettings,
 )
 from .sm2 import calculate_next_review
-from .services import complete_assessment, generate_weekly_assessment
+from .services import (
+    complete_assessment,
+    generate_milestone_assessments,
+    generate_weekly_assessment,
+)
 from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework import status
@@ -381,6 +385,8 @@ def _persist_problem_progress(user, slug, metadata, confidence, notes):
         changed_fields.append('notes')
     if changed_fields:
         progress.save(update_fields=[*changed_fields, 'updated_at'])
+    if created or reactivated:
+        generate_milestone_assessments(user)
     return progress, created, reactivated
 
 
@@ -470,6 +476,8 @@ def _track_sheet_problems(user, problems):
                 source='sheet',
                 updated_at=timezone.now(),
             )
+    if added:
+        generate_milestone_assessments(user)
     return added
 
 
@@ -796,6 +804,7 @@ def submit_review(request):
         scheduled_for=scheduled_for,
         reviewed_at=progress.last_reviewed_at,
     )
+    generate_milestone_assessments(request.user)
 
     return Response({
         'problem_id': problem.id,
@@ -1033,6 +1042,16 @@ def weekly_assessment(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def current_assessment(request):
+    generate_milestone_assessments(request.user)
+    assessment = Assessment.objects.filter(
+        user=request.user,
+        trigger_problem_count__isnull=False,
+        status__in=['scheduled', 'in_progress'],
+    ).order_by('trigger_problem_count').prefetch_related(
+        'problems__problem__pattern',
+        'problems__problem__patterns',
+    ).first()
+
     now = timezone.now()
     week_start = now - timedelta(days=now.weekday())
     week_start = timezone.make_aware(
@@ -1042,10 +1061,11 @@ def current_assessment(request):
         ),
         timezone.get_current_timezone(),
     )
-    assessment = Assessment.objects.filter(
-        user=request.user,
-        created_at__gte=week_start,
-    ).prefetch_related('problems__problem__pattern', 'problems__problem__patterns').first()
+    if assessment is None:
+        assessment = Assessment.objects.filter(
+            user=request.user,
+            created_at__gte=week_start,
+        ).prefetch_related('problems__problem__pattern', 'problems__problem__patterns').first()
     if assessment is None:
         assessment = generate_weekly_assessment(request.user)
     if assessment is None:

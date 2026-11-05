@@ -249,6 +249,7 @@ class AssessmentSerializer(serializers.ModelSerializer):
             'completed_at',
             'score_percentage',
             'total_problems',
+            'trigger_problem_count',
             'problems',
             'pattern_breakdown',
         ]

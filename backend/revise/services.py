@@ -19,6 +19,8 @@ from .sm2 import calculate_next_review
 ASSESSMENT_TIME_LIMIT_MINUTES = 20
 ASSESSMENT_MIN_PROBLEMS = 5
 ASSESSMENT_MAX_PROBLEMS = 10
+ASSESSMENT_MILESTONE_SIZE = 15
+ASSESSMENT_MILESTONE_PROBLEMS = 5
 
 
 def _week_start(value):
@@ -70,7 +72,12 @@ def generate_weekly_assessment(user):
         if next_review and next_review < overdue_cutoff:
             return (0, next_review.timestamp())
         if review_averages.get(item.problem.pattern_id, 5) < 3:
-            return (1, -item.confidence_rating)
+            recently_reviewed = (
+                item.last_reviewed_at.timestamp()
+                if item.last_reviewed_at and item.last_reviewed_at >= recent_cutoff
+                else 0
+            )
+            return (1, -item.confidence_rating, -recently_reviewed)
         if item.last_reviewed_at and item.last_reviewed_at >= recent_cutoff:
             return (2, -item.last_reviewed_at.timestamp())
         return (3, next_review.timestamp() if next_review else now.timestamp())
@@ -106,12 +113,110 @@ def generate_weekly_assessment(user):
     return assessment
 
 
+@transaction.atomic
+def generate_milestone_assessments(user):
+    """Create one five-question assessment for every 15-problem milestone reached."""
+    tracked_count = UserProblemProgress.objects.filter(
+        user=user,
+        is_tracked=True,
+    ).count()
+    highest_milestone = tracked_count // ASSESSMENT_MILESTONE_SIZE * ASSESSMENT_MILESTONE_SIZE
+    if not highest_milestone:
+        return []
+
+    progress_items = list(
+        UserProblemProgress.objects.filter(user=user, is_tracked=True)
+        .select_related('problem__pattern')
+        .prefetch_related('problem__patterns')
+    )
+    assessed_problem_ids = set(
+        AssessmentProblem.objects.filter(
+            assessment__user=user,
+            assessment__trigger_problem_count__isnull=False,
+        ).values_list('problem_id', flat=True)
+    )
+    assessments = []
+    for milestone in range(ASSESSMENT_MILESTONE_SIZE, highest_milestone + 1, ASSESSMENT_MILESTONE_SIZE):
+        existing = Assessment.objects.filter(
+            user=user,
+            trigger_problem_count=milestone,
+        ).first()
+        if existing:
+            assessments.append(existing)
+            continue
+
+        candidates = [
+            item for item in progress_items
+            if item.problem_id not in assessed_problem_ids
+        ]
+        selected = _select_milestone_problems(candidates)
+        if len(selected) < ASSESSMENT_MILESTONE_PROBLEMS:
+            continue
+
+        assessment, created = Assessment.objects.get_or_create(
+            user=user,
+            trigger_problem_count=milestone,
+            defaults={
+                'time_limit_minutes': UserSettings.objects.filter(user=user).values_list(
+                    'assessment_time_limit',
+                    flat=True,
+                ).first() or ASSESSMENT_TIME_LIMIT_MINUTES,
+                'total_problems': ASSESSMENT_MILESTONE_PROBLEMS,
+            },
+        )
+        if created:
+            AssessmentProblem.objects.bulk_create([
+                AssessmentProblem(assessment=assessment, problem=item.problem)
+                for item in selected
+            ])
+            assessed_problem_ids.update(item.problem_id for item in selected)
+        assessments.append(assessment)
+    return assessments
+
+
+def _select_milestone_problems(progress_items):
+    """Prefer low-confidence problems while covering as many patterns as possible."""
+    ranked = sorted(
+        progress_items,
+        key=lambda item: (
+            item.confidence_rating,
+            item.next_review_date.timestamp() if item.next_review_date else 0,
+            item.last_reviewed_at.timestamp() if item.last_reviewed_at else 0,
+            item.id,
+        ),
+    )
+    rank_index = {item.id: index for index, item in enumerate(ranked)}
+
+    def patterns_for(item):
+        patterns = {pattern.id for pattern in item.problem.patterns.all()}
+        if item.problem.pattern_id:
+            patterns.add(item.problem.pattern_id)
+        return patterns or {('uncategorized', item.problem_id)}
+
+    selected = []
+    covered_patterns = set()
+    remaining = list(ranked)
+    while remaining and len(selected) < ASSESSMENT_MILESTONE_PROBLEMS:
+        item = min(
+            remaining,
+            key=lambda candidate: (
+                -len(patterns_for(candidate) - covered_patterns),
+                rank_index[candidate.id],
+            ),
+        )
+        selected.append(item)
+        covered_patterns.update(patterns_for(item))
+        remaining.remove(item)
+    return selected
+
+
 def generate_assessments_for_active_users():
     user_model = get_user_model()
     generated = []
     for user in user_model.objects.filter(is_active=True).iterator():
+        generated.extend(generate_milestone_assessments(user))
         assessment = generate_weekly_assessment(user)
-        if assessment:
+        if assessment and all(item.id != assessment.id for item in generated):
             generated.append(assessment)
     return generated
 

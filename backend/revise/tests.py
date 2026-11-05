@@ -18,7 +18,7 @@ from .models import (
 	UserProblem,
 	UserProblemProgress,
 )
-from .services import generate_weekly_assessment
+from .services import generate_milestone_assessments, generate_weekly_assessment
 from .sm2 import calculate_next_review
 from .integrations import parse_leetcode_url
 
@@ -872,6 +872,90 @@ class AssessmentTests(APITestCase):
 		call_command('generate_assessments', stdout=StringIO())
 		call_command('generate_assessments', stdout=StringIO())
 		self.assertEqual(Assessment.objects.filter(user=self.user).count(), 1)
+
+	def test_fifteenth_tracked_problem_creates_five_question_pattern_diverse_assessment(self):
+		patterns = [
+			Pattern.objects.create(p_name=f'Milestone Pattern {index}')
+			for index in range(5)
+		]
+		all_problems = []
+		for pattern_index, pattern in enumerate(patterns):
+			for version, confidence in enumerate((1, 4, 5)):
+				problem = Problem.objects.create(
+					title=f'Milestone {pattern_index}-{version}',
+					leetcode_id=92000 + pattern_index * 3 + version,
+					link=f'https://leetcode.com/problems/milestone-{pattern_index}-{version}/',
+					difficulty='Medium',
+					pattern=pattern,
+				)
+				all_problems.append((problem, confidence))
+
+		for problem, confidence in all_problems[:-1]:
+			UserProblemProgress.objects.create(
+				user=self.user,
+				problem=problem,
+				confidence_rating=confidence,
+			)
+
+		self.assertEqual(generate_milestone_assessments(self.user), [])
+		last_problem, _ = all_problems[-1]
+		response = self.client.post(
+			'/api/problems/add-by-id/',
+			{'leetcode_id': last_problem.leetcode_id},
+			format='json',
+		)
+		self.assertEqual(response.status_code, 201)
+
+		assessment = Assessment.objects.get(user=self.user, trigger_problem_count=15)
+		self.assertEqual(assessment.total_problems, 5)
+		selected = list(assessment.problems.select_related('problem__pattern').order_by('id'))
+		self.assertEqual(
+			{entry.problem.pattern_id for entry in selected},
+			{pattern.id for pattern in patterns},
+		)
+		self.assertEqual(
+			{entry.problem_id for entry in selected},
+			{problem.id for problem, _ in all_problems[::3]},
+		)
+		current_response = self.client.get('/api/assessments/current/')
+		self.assertEqual(current_response.json()['id'], assessment.id)
+		self.assertEqual(current_response.json()['trigger_problem_count'], 15)
+
+	def test_each_fifteen_problem_milestone_is_created_once(self):
+		patterns = [
+			Pattern.objects.create(p_name=f'Milestone Repeat Pattern {index}')
+			for index in range(5)
+		]
+		for index in range(30):
+			problem = Problem.objects.create(
+				title=f'Milestone Repeat {index}',
+				leetcode_id=93000 + index,
+				link=f'https://leetcode.com/problems/milestone-repeat-{index}/',
+				difficulty='Easy',
+				pattern=patterns[index % len(patterns)],
+			)
+			UserProblemProgress.objects.create(user=self.user, problem=problem)
+
+		generated = generate_milestone_assessments(self.user)
+		self.assertEqual({assessment.trigger_problem_count for assessment in generated}, {15, 30})
+		selected_for_15 = set(
+			AssessmentProblem.objects.filter(
+				assessment__user=self.user,
+				assessment__trigger_problem_count=15,
+			).values_list('problem_id', flat=True)
+		)
+		selected_for_30 = set(
+			AssessmentProblem.objects.filter(
+				assessment__user=self.user,
+				assessment__trigger_problem_count=30,
+			).values_list('problem_id', flat=True)
+		)
+		self.assertTrue(selected_for_15.isdisjoint(selected_for_30))
+		generate_milestone_assessments(self.user)
+		self.assertEqual(
+			Assessment.objects.filter(user=self.user, trigger_problem_count__isnull=False).count(),
+			2,
+		)
 
 
 class CuratedSheetTests(APITestCase):
