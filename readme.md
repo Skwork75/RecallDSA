@@ -46,6 +46,7 @@ RecallDSA introduces a structured retention system built around four core princi
 - User authentication and profile management
 - Curated DSA sheet browsing and bulk addition to the SM-2 revision queue
 - Problem tracking with pattern-based tagging
+- Select up to five tracked problems for AI-generated revision-sheet PDFs
 - Personalized daily revision queue
 - Spaced repetition scheduling engine
 - Weekly timed assessments
@@ -76,8 +77,11 @@ Authenticated API endpoints:
 - `GET /api/sheets/{slug}/` — sheet detail and problem tracking state grouped by category
 - `POST /api/sheets/{slug}/track-all/` — add every sheet problem to the SM-2 queue
 - `POST /api/sheets/{slug}/track-selected/` — add the `problem_ids` array from the sheet
+- `POST /api/problems/revision-sheet/` — generate Python solutions and at least two test cases for 1–5 tracked problem IDs
 
 The frontend explorer is available at `/sheets`; each sheet detail page is available at `/sheets/{slug}`.
+
+Revision-sheet generation uses a local Ollama model; selected problem data is not sent to a cloud AI service. Install Ollama from [ollama.com/download](https://ollama.com/download), start its local server, and download the default model in a terminal with `ollama pull qwen2.5-coder:7b`. The backend connects to `http://127.0.0.1:11434` by default. Set `OLLAMA_BASE_URL` or `OLLAMA_MODEL` in the backend environment to override these defaults. Select problems on the Tracked problems page and choose **Create PDF** to download the sheet.
 
 ---
 

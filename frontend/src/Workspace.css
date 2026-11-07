@@ -583,6 +583,136 @@ body {
   justify-content: space-between;
 }
 
+.problem-heading-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 10px;
+  padding-right: 68px;
+}
+
+.revision-sheet-backdrop {
+  align-items: center;
+  background: rgba(15, 23, 42, .58);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 20px;
+  position: fixed;
+  z-index: 100;
+}
+
+.revision-sheet-dialog {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  max-height: min(90vh, 720px);
+  max-width: 560px;
+  overflow: hidden;
+  padding: 24px;
+  width: 100%;
+}
+
+.revision-sheet-dialog-heading {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+}
+
+.revision-sheet-dialog-heading h2 {
+  font-size: 22px;
+  letter-spacing: -.03em;
+  margin: 4px 0;
+}
+
+.revision-sheet-dialog-heading p:last-child {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+.dialog-close-button {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.revision-sheet-selection-tools {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  display: flex;
+  font-size: 11px;
+  justify-content: space-between;
+  margin-top: 20px;
+  padding: 0 0 10px;
+}
+
+.revision-sheet-selection-tools button {
+  background: transparent;
+  border: 0;
+  color: var(--green);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+}
+
+.revision-sheet-problem-list {
+  max-height: 48vh;
+  overflow-y: auto;
+}
+
+.revision-sheet-problem-option {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  display: flex;
+  gap: 12px;
+  min-height: 58px;
+  padding: 10px 4px;
+}
+
+.revision-sheet-problem-option:has(input:disabled:not(:checked)) {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.revision-sheet-problem-option input {
+  accent-color: var(--green);
+  flex: 0 0 auto;
+  height: 16px;
+  width: 16px;
+}
+
+.revision-sheet-problem-option span {
+  display: grid;
+  gap: 4px;
+}
+
+.revision-sheet-problem-option strong {
+  font-size: 12px;
+}
+
+.revision-sheet-problem-option small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.revision-sheet-dialog-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding-top: 18px;
+}
+
+.revision-sheet-dialog-actions button {
+  cursor: pointer;
+  padding: 0 14px;
+}
+
 .problem-card-actions {
   align-items: center;
   display: flex;

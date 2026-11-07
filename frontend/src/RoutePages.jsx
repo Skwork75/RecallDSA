@@ -26,11 +26,43 @@ function useRequest(path, reloadKey = 0) {
 export function ProblemsPage() {
   const [reloadKey, setReloadKey] = useState(0)
   const [addModalOpen, setAddModalOpen] = useState(false)
+  const [revisionSheetOpen, setRevisionSheetOpen] = useState(false)
+  const [selectedProblemIds, setSelectedProblemIds] = useState([])
+  const [generatingSheet, setGeneratingSheet] = useState(false)
   const [removingId, setRemovingId] = useState(null)
   const { authenticatedRequest } = useAuth()
   const { data, loading, error } = useRequest('/api/problems/tracked/', reloadKey)
   const isValidResponse = Array.isArray(data)
   const problems = isValidResponse ? data : []
+
+  const toggleProblemSelection = (problemId, selected) => {
+    setSelectedProblemIds((current) => {
+      if (!selected) return current.filter((id) => id !== problemId)
+      if (current.length >= 5 || current.includes(problemId)) return current
+      return [...current, problemId]
+    })
+  }
+
+  const generateRevisionSheet = async () => {
+    setGeneratingSheet(true)
+    try {
+      const result = await authenticatedRequest('/api/problems/revision-sheet/', {
+        method: 'POST',
+        body: JSON.stringify({ problem_ids: selectedProblemIds }),
+      })
+      if (!Array.isArray(result?.problems) || result.problems.length !== selectedProblemIds.length) {
+        throw new Error('The server returned an incomplete revision sheet. Please try again.')
+      }
+      await downloadRevisionSheet(result.problems)
+      setRevisionSheetOpen(false)
+      setSelectedProblemIds([])
+      toast.success('Revision sheet PDF downloaded')
+    } catch (requestError) {
+      toast.error(requestError.message)
+    } finally {
+      setGeneratingSheet(false)
+    }
+  }
 
   const removeProblem = async (progressId, title) => {
     if (!window.confirm(`Remove "${title}" from your tracked problems?`)) return
@@ -51,15 +83,25 @@ export function ProblemsPage() {
     <main className="route-page">
       <div className="problem-page-heading">
         <PageHeading eyebrow="YOUR LIBRARY" title="Tracked problems" description="Problems you have practiced and added to your personal recall history." />
-        <button
-          aria-label="Add problem"
-          className="primary-button add-problem-fab"
-          onClick={() => setAddModalOpen(true)}
-          title="Add problem"
-          type="button"
-        >
-          +
-        </button>
+        <div className="problem-heading-actions">
+          <button
+            className="secondary-button"
+            disabled={loading || problems.length === 0}
+            onClick={() => setRevisionSheetOpen(true)}
+            type="button"
+          >
+            Revision sheet
+          </button>
+          <button
+            aria-label="Add problem"
+            className="primary-button add-problem-fab"
+            onClick={() => setAddModalOpen(true)}
+            title="Add problem"
+            type="button"
+          >
+            +
+          </button>
+        </div>
       </div>
       {loading && <div className="empty-state">Loading your problems...</div>}
       {error && <div className="empty-state error-state" role="alert">{error}</div>}
@@ -96,8 +138,147 @@ export function ProblemsPage() {
         onClose={() => setAddModalOpen(false)}
         open={addModalOpen}
       />
+      {revisionSheetOpen && (
+        <RevisionSheetDialog
+          generating={generatingSheet}
+          onClose={() => {
+            if (!generatingSheet) setRevisionSheetOpen(false)
+          }}
+          onGenerate={generateRevisionSheet}
+          onSelectAll={() => setSelectedProblemIds(problems.slice(0, 5).map(({ problem }) => problem.id))}
+          onToggle={toggleProblemSelection}
+          problems={problems}
+          selectedIds={selectedProblemIds}
+        />
+      )}
     </main>
   )
+}
+
+function RevisionSheetDialog({ problems, selectedIds, onToggle, onSelectAll, onClose, onGenerate, generating }) {
+  useEffect(() => {
+    document.body.classList.add('modal-open')
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape' && !generating) onClose()
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.body.classList.remove('modal-open')
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [generating, onClose])
+
+  return (
+    <div className="revision-sheet-backdrop" onClick={onClose}>
+      <section
+        aria-labelledby="revision-sheet-title"
+        aria-modal="true"
+        className="revision-sheet-dialog"
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+      >
+        <div className="revision-sheet-dialog-heading">
+          <div>
+            <p className="eyebrow">PDF EXPORT</p>
+            <h2 id="revision-sheet-title">Choose problems</h2>
+            <p>Select up to 5 tracked problems for your revision sheet.</p>
+          </div>
+          <button aria-label="Close revision sheet dialog" className="dialog-close-button" disabled={generating} onClick={onClose} type="button">×</button>
+        </div>
+        <div className="revision-sheet-selection-tools">
+          <span>{selectedIds.length} of 5 selected</span>
+          <button disabled={generating || problems.length === 0} onClick={onSelectAll} type="button">
+            {problems.length > 5 ? 'Select first 5' : 'Select all'}
+          </button>
+        </div>
+        <div className="revision-sheet-problem-list">
+          {problems.map(({ problem }) => {
+            const selected = selectedIds.includes(problem.id)
+            return (
+              <label className="revision-sheet-problem-option" key={problem.id}>
+                <input
+                  checked={selected}
+                  disabled={generating || (!selected && selectedIds.length >= 5)}
+                  onChange={(event) => onToggle(problem.id, event.target.checked)}
+                  type="checkbox"
+                />
+                <span>
+                  <strong>{problem.title}</strong>
+                  <small>{problem.difficulty} · LeetCode #{problem.leetcode_id}</small>
+                </span>
+              </label>
+            )
+          })}
+        </div>
+        <div className="revision-sheet-dialog-actions">
+          <button className="secondary-button" disabled={generating} onClick={onClose} type="button">Cancel</button>
+          <button className="primary-button" disabled={generating || selectedIds.length === 0} onClick={onGenerate} type="button">
+            {generating ? 'Generating PDF…' : `Create PDF (${selectedIds.length})`}
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+async function downloadRevisionSheet(problems) {
+  const { jsPDF } = await import('jspdf')
+  const pdf = new jsPDF({ format: 'a4', unit: 'mm' })
+  const pageWidth = pdf.internal.pageSize.getWidth()
+  const pageHeight = pdf.internal.pageSize.getHeight()
+  const margin = 17
+  const contentWidth = pageWidth - margin * 2
+  let cursorY = margin
+
+  const addText = (text, { size = 10, font = 'normal', color = [35, 45, 62], gap = 1.5 } = {}) => {
+    pdf.setFont('helvetica', font)
+    pdf.setFontSize(size)
+    pdf.setTextColor(...color)
+    const lines = pdf.splitTextToSize(String(text || 'Not provided'), contentWidth)
+    const lineHeight = size * 0.42
+    for (const line of lines) {
+      if (cursorY + lineHeight > pageHeight - margin) {
+        pdf.addPage()
+        cursorY = margin
+      }
+      pdf.text(line, margin, cursorY)
+      cursorY += lineHeight
+    }
+    cursorY += gap
+  }
+
+  addText('RecallDSA · Revision sheet', { size: 18, font: 'bold', color: [35, 45, 62], gap: 2 })
+  addText(`Generated ${new Date().toLocaleDateString()} · ${problems.length} problem${problems.length === 1 ? '' : 's'}`, {
+    size: 9,
+    color: [100, 112, 132],
+    gap: 5,
+  })
+
+  problems.forEach((problem, index) => {
+    if (index > 0) {
+      pdf.addPage()
+      cursorY = margin
+    }
+    addText(`${index + 1}. ${problem.title}  ·  ${problem.difficulty}  ·  LeetCode #${problem.leetcode_id}`, {
+      size: 15,
+      font: 'bold',
+      color: [43, 58, 135],
+      gap: 3,
+    })
+    addText('Problem description', { size: 11, font: 'bold', gap: 1 })
+    addText(problem.description, { size: 10, gap: 4 })
+    addText('Python solution', { size: 11, font: 'bold', gap: 1 })
+    const solution = problem.python_solution.replace(/^```(?:python)?\s*/i, '').replace(/\s*```$/, '')
+    addText(solution, { size: 9, font: 'normal', color: [34, 79, 67], gap: 4 })
+    addText('Test cases', { size: 11, font: 'bold', gap: 1 })
+    problem.test_cases.forEach((testCase, testIndex) => {
+      addText(`Test ${testIndex + 1}`, { size: 10, font: 'bold', gap: 0.5 })
+      addText(`Input: ${testCase.input}`, { size: 9, font: 'normal', gap: 0.5 })
+      addText(`Expected output: ${testCase.expected_output}`, { size: 9, gap: 2 })
+    })
+  })
+
+  pdf.save('recalldsa-revision-sheet.pdf')
 }
 
 export function ProblemDetailPage() {

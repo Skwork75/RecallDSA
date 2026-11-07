@@ -1,6 +1,8 @@
+import json
 from datetime import timedelta
 from io import StringIO
 from pathlib import Path
+from urllib.error import URLError
 from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
@@ -21,6 +23,124 @@ from .models import (
 from .services import generate_milestone_assessments, generate_weekly_assessment
 from .sm2 import calculate_next_review
 from .integrations import parse_leetcode_url
+
+
+class RevisionSheetGenerationTests(APITestCase):
+	def setUp(self):
+		self.user = get_user_model().objects.create_user(
+			username='revision-sheet-user',
+			password='secure-password-123',
+		)
+		self.client.force_authenticate(self.user)
+		self.problems = [
+			Problem.objects.create(
+				title=f'Problem {number}',
+				leetcode_id=number,
+				link=f'https://leetcode.com/problems/problem-{number}/',
+				difficulty='Easy',
+				description=f'<p>Description for problem {number}.</p>',
+			)
+			for number in (101, 102, 103, 104, 105, 106)
+		]
+		for problem in self.problems[:5]:
+			UserProblemProgress.objects.create(user=self.user, problem=problem)
+
+	def test_rejects_more_than_five_selected_problems(self):
+		response = self.client.post(
+			'/api/problems/revision-sheet/',
+			{'problem_ids': [problem.id for problem in self.problems]},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, 400)
+		self.assertIn('1 and 5', response.json()['detail'])
+
+	def test_rejects_duplicate_and_untracked_problem_ids(self):
+		duplicate_response = self.client.post(
+			'/api/problems/revision-sheet/',
+			{'problem_ids': [self.problems[0].id, self.problems[0].id]},
+			format='json',
+		)
+		untracked_response = self.client.post(
+			'/api/problems/revision-sheet/',
+			{'problem_ids': [self.problems[5].id]},
+			format='json',
+		)
+
+		self.assertEqual(duplicate_response.status_code, 400)
+		self.assertEqual(untracked_response.status_code, 400)
+
+	@patch('revise.views.generate_revision_sheet_content')
+	def test_generates_only_selected_problems_in_requested_order(self, generate_content):
+		generate_content.return_value = [{'problem_id': self.problems[1].id}]
+
+		response = self.client.post(
+			'/api/problems/revision-sheet/',
+			{'problem_ids': [self.problems[1].id]},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.json()['problems'], generate_content.return_value)
+		self.assertEqual(generate_content.call_args.args[0][0]['id'], self.problems[1].id)
+		self.assertEqual(generate_content.call_args.args[0][0]['description'], '<p>Description for problem 102.</p>')
+
+	@patch.dict('os.environ', {'OLLAMA_BASE_URL': 'http://localhost:11434', 'OLLAMA_MODEL': 'test-model'})
+	@patch('revise.integrations.urlopen')
+	def test_ollama_response_contains_two_test_cases(self, urlopen_mock):
+		from .integrations import generate_revision_sheet_content
+
+		ollama_payload = {
+			'message': {
+				'content': (
+					'{"problems":[{"problem_id":1,"python_solution":"class Solution: pass",'
+					'"test_cases":[{"input":"[1]","expected_output":"1"},'
+					'{"input":"[2]","expected_output":"2"}]}]}'
+				),
+			},
+		}
+		urlopen_mock.return_value.__enter__.return_value.read.return_value = json.dumps(ollama_payload).encode()
+
+		result = generate_revision_sheet_content([{
+			'id': 1,
+			'title': 'Example',
+			'leetcode_id': 1,
+			'difficulty': 'Easy',
+			'description': '<p>Example statement.</p>',
+		}])
+
+		self.assertEqual(len(result[0]['test_cases']), 2)
+		self.assertEqual(result[0]['description'], 'Example statement.')
+		request = urlopen_mock.call_args.args[0]
+		self.assertEqual(request.full_url, 'http://localhost:11434/api/chat')
+		request_body = json.loads(request.data)
+		self.assertEqual(request_body['model'], 'test-model')
+		self.assertEqual(request_body['format'], 'json')
+		self.assertNotIn('Authorization', request.headers)
+
+	@patch.dict('os.environ', {'OLLAMA_BASE_URL': 'not-a-url'})
+	def test_invalid_ollama_url_returns_a_configuration_error(self):
+		from .integrations import (
+			RevisionSheetConfigurationError,
+			generate_revision_sheet_content,
+		)
+
+		with self.assertRaises(RevisionSheetConfigurationError):
+			generate_revision_sheet_content([])
+
+	@patch('revise.integrations.urlopen', side_effect=URLError('connection refused'))
+	def test_unavailable_ollama_returns_a_generation_error(self, urlopen_mock):
+		from .integrations import RevisionSheetGenerationError, generate_revision_sheet_content
+
+		with self.assertRaisesRegex(RevisionSheetGenerationError, 'Start Ollama'):
+			generate_revision_sheet_content([{
+				'id': 1,
+				'title': 'Example',
+				'leetcode_id': 1,
+				'difficulty': 'Easy',
+				'description': '<p>Example statement.</p>',
+			}])
+		urlopen_mock.assert_called_once()
 
 
 class LeetCodeProblemImportTests(APITestCase):

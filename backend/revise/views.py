@@ -45,6 +45,11 @@ from .services import (
     generate_milestone_assessments,
     generate_weekly_assessment,
 )
+from .integrations import (
+    RevisionSheetConfigurationError,
+    RevisionSheetGenerationError,
+    generate_revision_sheet_content,
+)
 from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework import status
@@ -123,6 +128,55 @@ def tracked_problems(request):
         }
         for progress in progress_items
     ])
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def generate_revision_sheet(request):
+    problem_ids = request.data.get('problem_ids')
+    if (
+        not isinstance(problem_ids, list)
+        or not 1 <= len(problem_ids) <= 5
+        or any(type(problem_id) is not int or problem_id < 1 for problem_id in problem_ids)
+        or len(set(problem_ids)) != len(problem_ids)
+    ):
+        return Response(
+            {'detail': 'Select between 1 and 5 unique tracked problems.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    tracked_problems_by_id = {
+        problem.id: problem
+        for problem in Problem.objects.filter(
+            sm2_progress__user=request.user,
+            sm2_progress__is_tracked=True,
+            id__in=problem_ids,
+        ).distinct()
+    }
+    if set(tracked_problems_by_id) != set(problem_ids):
+        return Response(
+            {'detail': 'One or more selected problems are not in your tracked list.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    problems = [
+        {
+            'id': problem.id,
+            'title': problem.title,
+            'leetcode_id': problem.leetcode_id,
+            'difficulty': problem.difficulty,
+            'description': problem.description,
+        }
+        for problem in (tracked_problems_by_id[problem_id] for problem_id in problem_ids)
+    ]
+    try:
+        generated_problems = generate_revision_sheet_content(problems)
+    except RevisionSheetConfigurationError as error:
+        return Response({'detail': str(error)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    except RevisionSheetGenerationError as error:
+        return Response({'detail': str(error)}, status=status.HTTP_502_BAD_GATEWAY)
+
+    return Response({'problems': generated_problems})
 
 
 @api_view(['POST'])
