@@ -1,10 +1,11 @@
 import json
 from datetime import timedelta
-from io import StringIO
+from io import BytesIO, StringIO
 from pathlib import Path
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from unittest.mock import patch
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.core.management import call_command
 from django.utils import timezone
 from rest_framework.test import APITestCase
@@ -27,6 +28,7 @@ from .integrations import parse_leetcode_url
 
 class RevisionSheetGenerationTests(APITestCase):
 	def setUp(self):
+		cache.clear()
 		self.user = get_user_model().objects.create_user(
 			username='revision-sheet-user',
 			password='secure-password-123',
@@ -85,7 +87,7 @@ class RevisionSheetGenerationTests(APITestCase):
 		self.assertEqual(generate_content.call_args.args[0][0]['id'], self.problems[1].id)
 		self.assertEqual(generate_content.call_args.args[0][0]['description'], '<p>Description for problem 102.</p>')
 
-	@patch.dict('os.environ', {'OLLAMA_BASE_URL': 'http://localhost:11434', 'OLLAMA_MODEL': 'test-model'})
+	@patch.dict('os.environ', {'OLLAMA_BASE_URL': 'http://localhost:11434'})
 	@patch('revise.integrations.urlopen')
 	def test_ollama_response_contains_two_test_cases(self, urlopen_mock):
 		from .integrations import generate_revision_sheet_content
@@ -94,6 +96,7 @@ class RevisionSheetGenerationTests(APITestCase):
 			'message': {
 				'content': (
 					'{"problems":[{"problem_id":1,"python_solution":"class Solution: pass",'
+					'"explanation":"Use the required algorithm.",'
 					'"test_cases":[{"input":"[1]","expected_output":"1"},'
 					'{"input":"[2]","expected_output":"2"}]}]}'
 				),
@@ -111,12 +114,93 @@ class RevisionSheetGenerationTests(APITestCase):
 
 		self.assertEqual(len(result[0]['test_cases']), 2)
 		self.assertEqual(result[0]['description'], 'Example statement.')
+		self.assertEqual(result[0]['explanation'], 'Use the required algorithm.')
+		cached_result = generate_revision_sheet_content([{
+			'id': 1,
+			'title': 'Example',
+			'leetcode_id': 1,
+			'difficulty': 'Easy',
+			'description': '<p>Example statement.</p>',
+		}])
+		self.assertEqual(cached_result, result)
 		request = urlopen_mock.call_args.args[0]
 		self.assertEqual(request.full_url, 'http://localhost:11434/api/chat')
 		request_body = json.loads(request.data)
-		self.assertEqual(request_body['model'], 'test-model')
-		self.assertEqual(request_body['format'], 'json')
+		self.assertEqual(request_body['model'], 'qwen2.5-coder:0.5b')
+		self.assertEqual(request_body['format']['properties']['problems']['items']['properties']['problem_id']['enum'], [1])
+		self.assertEqual(request_body['format']['properties']['problems']['minItems'], 1)
+		self.assertEqual(request_body['format']['properties']['problems']['items']['properties']['test_cases']['maxItems'], 2)
+		self.assertEqual(request_body['options']['num_predict'], 384)
+		self.assertEqual(request_body['options']['num_thread'], 4)
 		self.assertNotIn('Authorization', request.headers)
+		urlopen_mock.assert_called_once()
+
+	@patch('revise.integrations.urlopen')
+	def test_generates_multiple_problems_in_separate_requests(self, urlopen_mock):
+		from .integrations import generate_revision_sheet_content
+
+		def response_for(problem_id):
+			return BytesIO(json.dumps({
+				'message': {
+					'content': json.dumps({
+						'problems': [{
+							'problem_id': problem_id,
+							'python_solution': 'def solve(): return True',
+							'explanation': 'Return the computed result.',
+							'test_cases': [
+								{'input': '[]', 'expected_output': 'True'},
+								{'input': '[1]', 'expected_output': 'True'},
+							],
+						}],
+					}),
+				},
+			}).encode())
+
+		urlopen_mock.side_effect = [response_for(1), response_for(2)]
+		problems = [
+			{
+				'id': problem_id,
+				'title': f'Problem {problem_id}',
+				'leetcode_id': problem_id,
+				'difficulty': 'Easy',
+				'description': f'Description {problem_id}',
+			}
+			for problem_id in (1, 2)
+		]
+
+		result = generate_revision_sheet_content(problems)
+
+		self.assertEqual([problem['problem_id'] for problem in result], [1, 2])
+		self.assertEqual(urlopen_mock.call_count, 2)
+		request_ids = [
+			json.loads(call.args[0].data)['format']['properties']['problems']['items']['properties']['problem_id']['enum']
+			for call in urlopen_mock.call_args_list
+		]
+		self.assertEqual(request_ids, [[1], [2]])
+
+	@patch('revise.integrations.urlopen')
+	def test_ollama_http_500_includes_server_error_detail(self, urlopen_mock):
+		from .integrations import RevisionSheetGenerationError, generate_revision_sheet_content
+
+		urlopen_mock.side_effect = HTTPError(
+			'http://localhost:11434/api/chat',
+			500,
+			'Internal Server Error',
+			{},
+			BytesIO(b'{"error":"model requires more system memory than is available"}'),
+		)
+
+		with self.assertRaisesRegex(
+			RevisionSheetGenerationError,
+			'model requires more system memory',
+		):
+			generate_revision_sheet_content([{
+				'id': 1,
+				'title': 'Example',
+				'leetcode_id': 1,
+				'difficulty': 'Easy',
+				'description': '<p>Example statement.</p>',
+			}])
 
 	@patch.dict('os.environ', {'OLLAMA_BASE_URL': 'not-a-url'})
 	def test_invalid_ollama_url_returns_a_configuration_error(self):

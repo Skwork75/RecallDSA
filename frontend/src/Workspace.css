@@ -660,6 +660,13 @@ body {
   font-weight: 650;
 }
 
+.revision-sheet-generation-note {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+  margin: 8px 0 0;
+}
+
 .revision-sheet-problem-list {
   max-height: 48vh;
   overflow-y: auto;

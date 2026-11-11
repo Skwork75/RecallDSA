@@ -81,7 +81,7 @@ Authenticated API endpoints:
 
 The frontend explorer is available at `/sheets`; each sheet detail page is available at `/sheets/{slug}`.
 
-Revision-sheet generation uses a local Ollama model; selected problem data is not sent to a cloud AI service. Install Ollama from [ollama.com/download](https://ollama.com/download), start its local server, and download the default model in a terminal with `ollama pull qwen2.5-coder:7b`. The backend connects to `http://127.0.0.1:11434` by default. Set `OLLAMA_BASE_URL` or `OLLAMA_MODEL` in the backend environment to override these defaults. Select problems on the Tracked problems page and choose **Create PDF** to download the sheet.
+Revision-sheet generation uses a local Ollama model; selected problem data is not sent to a cloud AI service. Install Ollama from [ollama.com/download](https://ollama.com/download), start its local server, and download the default model in a terminal with `ollama pull qwen2.5-coder:0.5b`. This lightweight coding model is the default for computers with limited memory. The backend connects to `http://127.0.0.1:11434` by default. Set `OLLAMA_BASE_URL` or `OLLAMA_MODEL` in the backend environment to override these defaults. Generated answers are cached for 30 days so reused problems do not need to be generated again. Select problems on the Tracked problems page and choose **Create PDF** to download the sheet.
 
 ---
 

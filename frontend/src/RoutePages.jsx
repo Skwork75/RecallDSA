@@ -191,6 +191,9 @@ function RevisionSheetDialog({ problems, selectedIds, onToggle, onSelectAll, onC
             {problems.length > 5 ? 'Select first 5' : 'Select all'}
           </button>
         </div>
+        <p className="revision-sheet-generation-note">
+          The first local generation can take a little while. Generated content is saved for future sheets.
+        </p>
         <div className="revision-sheet-problem-list">
           {problems.map(({ problem }) => {
             const selected = selectedIds.includes(problem.id)
@@ -270,6 +273,8 @@ async function downloadRevisionSheet(problems) {
     addText('Python solution', { size: 11, font: 'bold', gap: 1 })
     const solution = problem.python_solution.replace(/^```(?:python)?\s*/i, '').replace(/\s*```$/, '')
     addText(solution, { size: 9, font: 'normal', color: [34, 79, 67], gap: 4 })
+    addText('Explanation', { size: 11, font: 'bold', gap: 1 })
+    addText(problem.explanation, { size: 10, gap: 4 })
     addText('Test cases', { size: 11, font: 'bold', gap: 1 })
     problem.test_cases.forEach((testCase, testIndex) => {
       addText(`Test ${testIndex + 1}`, { size: 10, font: 'bold', gap: 0.5 })
