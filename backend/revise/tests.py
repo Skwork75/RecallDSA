@@ -87,7 +87,10 @@ class RevisionSheetGenerationTests(APITestCase):
 		self.assertEqual(generate_content.call_args.args[0][0]['id'], self.problems[1].id)
 		self.assertEqual(generate_content.call_args.args[0][0]['description'], '<p>Description for problem 102.</p>')
 
-	@patch.dict('os.environ', {'OLLAMA_BASE_URL': 'http://localhost:11434'})
+	@patch.dict('os.environ', {
+		'OLLAMA_BASE_URL': 'http://localhost:11434',
+		'OLLAMA_MODEL': 'qwen2.5-coder:1.5b',
+	})
 	@patch('revise.integrations.urlopen')
 	def test_ollama_response_contains_two_test_cases(self, urlopen_mock):
 		from .integrations import generate_revision_sheet_content
@@ -126,11 +129,9 @@ class RevisionSheetGenerationTests(APITestCase):
 		request = urlopen_mock.call_args.args[0]
 		self.assertEqual(request.full_url, 'http://localhost:11434/api/chat')
 		request_body = json.loads(request.data)
-		self.assertEqual(request_body['model'], 'qwen2.5-coder:0.5b')
-		self.assertEqual(request_body['format']['properties']['problems']['items']['properties']['problem_id']['enum'], [1])
-		self.assertEqual(request_body['format']['properties']['problems']['minItems'], 1)
-		self.assertEqual(request_body['format']['properties']['problems']['items']['properties']['test_cases']['maxItems'], 2)
-		self.assertEqual(request_body['options']['num_predict'], 384)
+		self.assertEqual(request_body['model'], 'qwen2.5-coder:1.5b')
+		self.assertEqual(request_body['format'], 'json')
+		self.assertEqual(request_body['options']['num_predict'], 1024)
 		self.assertEqual(request_body['options']['num_thread'], 4)
 		self.assertNotIn('Authorization', request.headers)
 		urlopen_mock.assert_called_once()
@@ -148,8 +149,8 @@ class RevisionSheetGenerationTests(APITestCase):
 							'python_solution': 'def solve(): return True',
 							'explanation': 'Return the computed result.',
 							'test_cases': [
-								{'input': '[]', 'expected_output': 'True'},
-								{'input': '[1]', 'expected_output': 'True'},
+								{'input': '[]', 'expected_output': True},
+								{'input': '[1]', 'expected_output': True},
 							],
 						}],
 					}),
@@ -171,12 +172,13 @@ class RevisionSheetGenerationTests(APITestCase):
 		result = generate_revision_sheet_content(problems)
 
 		self.assertEqual([problem['problem_id'] for problem in result], [1, 2])
+		self.assertEqual(result[0]['test_cases'][0]['expected_output'], 'true')
 		self.assertEqual(urlopen_mock.call_count, 2)
 		request_ids = [
-			json.loads(call.args[0].data)['format']['properties']['problems']['items']['properties']['problem_id']['enum']
+			json.loads(json.loads(call.args[0].data)['messages'][1]['content'])['problem_id']
 			for call in urlopen_mock.call_args_list
 		]
-		self.assertEqual(request_ids, [[1], [2]])
+		self.assertEqual(request_ids, [1, 2])
 
 	@patch('revise.integrations.urlopen')
 	def test_ollama_http_500_includes_server_error_detail(self, urlopen_mock):

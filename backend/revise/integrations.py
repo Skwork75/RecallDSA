@@ -231,7 +231,7 @@ def fetch_recent_accepted_submissions(username):
 def generate_revision_sheet_content(problems):
     """Generate, validate, and cache content for each problem independently."""
     base_url = os.getenv('OLLAMA_BASE_URL', 'http://127.0.0.1:11434').rstrip('/')
-    model = os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:0.5b')
+    model = os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:1.5b')
     parsed_base_url = urlparse(base_url)
     if parsed_base_url.scheme not in ('http', 'https') or not parsed_base_url.netloc:
         raise RevisionSheetConfigurationError(
@@ -273,73 +273,35 @@ def generate_revision_sheet_content(problems):
 
 def _generate_revision_sheet_problem(problem, base_url, model):
     """Generate one problem per request to avoid truncating batched JSON output."""
-    response_schema = {
-        'type': 'object',
-        'properties': {
-            'problems': {
-                'type': 'array',
-                'minItems': 1,
-                'maxItems': 1,
-                'items': {
-                    'type': 'object',
-                    'properties': {
-                        'problem_id': {'type': 'integer', 'enum': [problem['id']]},
-                        'python_solution': {'type': 'string'},
-                        'explanation': {'type': 'string'},
-                        'test_cases': {
-                            'type': 'array',
-                            'minItems': 2,
-                            'maxItems': 2,
-                            'items': {
-                                'type': 'object',
-                                'properties': {
-                                    'input': {'type': 'string'},
-                                    'expected_output': {'type': 'string'},
-                                },
-                                'required': ['input', 'expected_output'],
-                                'additionalProperties': False,
-                            },
-                        },
-                    },
-                    'required': ['problem_id', 'python_solution', 'explanation', 'test_cases'],
-                    'additionalProperties': False,
-                },
-            },
-        },
-        'required': ['problems'],
-        'additionalProperties': False,
-    }
     request = Request(
         f'{base_url}/api/chat',
         data=json.dumps({
             'model': model,
-            'format': response_schema,
+            'format': 'json',
             'stream': False,
             'options': {
                 'temperature': 0.1,
                 'num_ctx': 2048,
-                'num_predict': 384,
+                'num_predict': 1024,
                 'num_thread': 4,
             },
             'messages': [
                 {
                     'role': 'system',
                     'content': (
-                        'Solve this problem. Return its exact problem_id, a correct Python solution in at most 15 '
-                        'lines, one short explanation sentence, and exactly two short input/output tests. Use '
-                        'LeetCode notation. No comments, markdown, or extra fields.'
-                    ),
+                        'You are a helpful coding assistant. Return valid JSON matching this exact structure: '
+                        '{"problems": [{"problem_id": %s, "python_solution": "...", "explanation": "...", "test_cases": [{"input": "...", "expected_output": "..."}, {"input": "...", "expected_output": "..."}]}]} '
+                        'Provide a complete Python solution, a short explanation sentence, and exactly two test cases. No markdown code blocks.'
+                    ) % problem['id'],
                 },
                 {
                     'role': 'user',
                     'content': json.dumps({
-                        'problems': [{
-                            'problem_id': problem['id'],
-                            'title': problem['title'],
-                            'leetcode_id': problem['leetcode_id'],
-                            'difficulty': problem['difficulty'],
-                            'description': problem['description'],
-                        }],
+                        'problem_id': problem['id'],
+                        'title': problem['title'],
+                        'leetcode_id': problem['leetcode_id'],
+                        'difficulty': problem['difficulty'],
+                        'description': problem['description'],
                     }),
                 },
             ],
@@ -390,9 +352,16 @@ def _generate_revision_sheet_problem(problem, base_url, model):
         ) from error
 
     try:
-        content = payload['message']['content']
+        content = payload['message']['content'].strip()
+        if content.startswith('```'):
+            content = content.split('\n', 1)[1]
+            if content.endswith('```'):
+                content = content.rsplit('```', 1)[0]
+            content = content.strip()
         generated = json.loads(content)
-        generated_problems = generated['problems']
+        generated_problems = generated.get('problems')
+        if not isinstance(generated_problems, list) and isinstance(generated, dict):
+            generated_problems = [generated]
     except (KeyError, IndexError, TypeError, json.JSONDecodeError) as error:
         done_reason = payload.get('done_reason', 'unknown')
         generated_tokens = payload.get('eval_count', 'unknown')
@@ -433,14 +402,28 @@ def _generate_revision_sheet_problem(problem, base_url, model):
         raise RevisionSheetGenerationError('Ollama returned invalid problem content. Please try again.')
     if any(
         not isinstance(test_case, dict)
-        or not isinstance(test_case.get('input'), str)
-        or not isinstance(test_case.get('expected_output'), str)
+        or 'input' not in test_case
+        or 'expected_output' not in test_case
         for test_case in test_cases
     ):
         raise RevisionSheetGenerationError('Ollama returned invalid test cases. Please try again.')
 
+    normalized_test_cases = [
+        {
+            **test_case,
+            'input': _format_revision_sheet_value(test_case['input']),
+            'expected_output': _format_revision_sheet_value(test_case['expected_output']),
+        }
+        for test_case in test_cases
+    ]
     return {
         'python_solution': solution.strip(),
         'explanation': explanation.strip(),
-        'test_cases': test_cases,
+        'test_cases': normalized_test_cases,
     }
+
+
+def _format_revision_sheet_value(value):
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False, separators=(',', ':'))
