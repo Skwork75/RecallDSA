@@ -52,12 +52,18 @@ RecallDSA introduces a structured retention system built around four core princi
 - Weekly timed assessments
 - Progress dashboard with performance analytics
 - Weak-topic identification and recommendations
+- LeetCode public-profile connection with five most recent unique Accepted problems synced to the tracker
 
 ### Planned Features
-- LeetCode integration for automatic problem import
 - Peer skill matching for collaborative practice
 - AI-powered hint system using LLMs
 - Mobile-responsive Progressive Web App (PWA)
+
+### LeetCode Integration
+
+Connect a LeetCode username or public profile URL from **Settings → Integrations**. RecallDSA fetches up to 20 public recent Accepted submissions, selects the five newest unique problems, and adds them to the Problem Tracker. Dashboard visits trigger synchronization with a 15-minute successful-sync cooldown; manual sync is also available.
+
+The integration uses LeetCode's undocumented public GraphQL API and does not request account credentials. Its recent-submission query exposes a limited window of up to 20 submissions, so a problem may be missed if more than 20 submissions occur between syncs. LeetCode may change or rate-limit this API.
 
 ### Curated DSA Sheets
 
@@ -192,7 +198,7 @@ This approach mirrors cognitive science research on long-term memory formation.
 - [ ] Personalized recommendations
 
 ### Phase 4: Enhancements
-- [ ] LeetCode API integration
+- [x] LeetCode API integration
 - [ ] Peer matching algorithm
 - [ ] AI-powered hint system
 - [ ] Mobile responsiveness

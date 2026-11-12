@@ -90,7 +90,18 @@ class UserSettingsSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserSettings
-        exclude = ['id', 'user']
+        fields = [
+            'daily_problem_goal',
+            'assessment_day',
+            'assessment_time_limit',
+            'email_reminders',
+            'reminder_time',
+            'theme',
+            'timezone',
+            'leetcode_username',
+            'leetcode_last_synced_at',
+        ]
+        read_only_fields = ['leetcode_username', 'leetcode_last_synced_at']
 
     def validate_timezone(self, value):
         try:

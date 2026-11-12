@@ -63,6 +63,9 @@
 .integration-brand p { color: var(--muted); font-size: 11px; margin: 0; }
 .integration-card .settings-field { max-width: none; }
 .integration-status { align-items: center; display: flex; font-size: 12px; gap: 8px; margin: 0; }
+.integration-status strong { color: var(--ink); }
+.integration-card a { color: var(--green); font-weight: 650; text-decoration: none; }
+.integration-card a:hover { text-decoration: underline; }
 .status-dot { background: #9ca3af; border-radius: 50%; height: 8px; width: 8px; }
 .status-dot.connected { background: #23955b; }
 .integration-card .field-help { margin: -8px 0 0; }

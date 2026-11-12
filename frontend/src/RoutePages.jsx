@@ -34,6 +34,16 @@ export function ProblemsPage() {
   const { data, loading, error } = useRequest('/api/problems/tracked/', reloadKey)
   const isValidResponse = Array.isArray(data)
   const problems = isValidResponse ? data : []
+  const recentlySynced = problems
+    .filter(({ recently_synced }) => recently_synced)
+    .sort((left, right) => new Date(right.accepted_at) - new Date(left.accepted_at))
+  const otherTracked = problems.filter(({ recently_synced }) => !recently_synced)
+
+  useEffect(() => {
+    const reload = () => setReloadKey((key) => key + 1)
+    window.addEventListener('recalldsa:leetcode-synced', reload)
+    return () => window.removeEventListener('recalldsa:leetcode-synced', reload)
+  }, [])
 
   const toggleProblemSelection = (problemId, selected) => {
     setSelectedProblemIds((current) => {
@@ -79,6 +89,33 @@ export function ProblemsPage() {
     }
   }
 
+  const renderProblemCard = ({ id, problem, source, recently_synced: recentlySyncedProblem }) => (
+    <article className="problem-card" key={id}>
+      <div className="card-topline">
+        <span className="difficulty-label">{problem.difficulty}</span>
+        <span className="question-number">#{problem.leetcode_id}</span>
+        {(source === 'leetcode_sync' || recentlySyncedProblem) && <span className="leetcode-source-label">LeetCode</span>}
+      </div>
+      <h3>{problem.title}</h3>
+      <p className="pattern-label">{problem.pattern?.p_name || 'Uncategorized pattern'}</p>
+      <div className="card-footer">
+        <Link to={`/problems/${problem.id}`}>View details <span>↗</span></Link>
+        <div className="problem-card-actions">
+          {problem.link && <a href={problem.link} rel="noreferrer" target="_blank">LeetCode ↗</a>}
+          <button
+            aria-label={`Remove ${problem.title} from your problems`}
+            className="problem-remove-button"
+            disabled={removingId === id}
+            onClick={() => removeProblem(id, problem.title)}
+            type="button"
+          >
+            {removingId === id ? 'Removing…' : 'Remove'}
+          </button>
+        </div>
+      </div>
+    </article>
+  )
+
   return (
     <main className="route-page">
       <div className="problem-page-heading">
@@ -107,31 +144,20 @@ export function ProblemsPage() {
       {error && <div className="empty-state error-state" role="alert">{error}</div>}
       {!loading && !error && !isValidResponse && <div className="empty-state error-state" role="alert">The tracked problems response had an unexpected format.</div>}
       {!loading && !error && isValidResponse && problems.length === 0 && <div className="empty-state">No problems tracked yet. Start with a curated <Link to="/sheets">DSA sheet</Link> or browse your <Link to="/dashboard">dashboard</Link>.</div>}
-      {!loading && !error && isValidResponse && problems.length > 0 && (
-        <div className="problem-grid">
-          {problems.map(({ id, problem }) => (
-            <article className="problem-card" key={id}>
-              <div className="card-topline"><span className="difficulty-label">{problem.difficulty}</span><span className="question-number">#{problem.leetcode_id}</span></div>
-              <h3>{problem.title}</h3>
-              <p className="pattern-label">{problem.pattern?.p_name || 'Uncategorized pattern'}</p>
-              <div className="card-footer">
-                <Link to={`/problems/${problem.id}`}>View details <span>↗</span></Link>
-                <div className="problem-card-actions">
-                  {problem.link && <a href={problem.link} rel="noreferrer" target="_blank">LeetCode ↗</a>}
-                  <button
-                    aria-label={`Remove ${problem.title} from your problems`}
-                    className="problem-remove-button"
-                    disabled={removingId === id}
-                    onClick={() => removeProblem(id, problem.title)}
-                    type="button"
-                  >
-                    {removingId === id ? 'Removing…' : 'Remove'}
-                  </button>
-                </div>
-              </div>
-            </article>
-          ))}
-        </div>
+      {!loading && !error && isValidResponse && recentlySynced.length > 0 && (
+        <section aria-labelledby="recently-synced-title" className="tracked-problem-section">
+          <div className="section-heading">
+            <div><p className="eyebrow">LEETCODE IMPORT</p><h2 id="recently-synced-title">Recently synced</h2></div>
+            <span className="result-count">{recentlySynced.length} problem{recentlySynced.length === 1 ? '' : 's'}</span>
+          </div>
+          <div className="problem-grid">{recentlySynced.map(renderProblemCard)}</div>
+        </section>
+      )}
+      {!loading && !error && isValidResponse && otherTracked.length > 0 && (
+        <section aria-labelledby="all-tracked-title" className="tracked-problem-section">
+          {recentlySynced.length > 0 && <div className="section-heading"><div><p className="eyebrow">YOUR LIBRARY</p><h2 id="all-tracked-title">All other tracked problems</h2></div><span className="result-count">{otherTracked.length} problem{otherTracked.length === 1 ? '' : 's'}</span></div>}
+          <div className="problem-grid">{otherTracked.map(renderProblemCard)}</div>
+        </section>
       )}
       <AddProblemModalLayer
         onAdded={() => setReloadKey((key) => key + 1)}

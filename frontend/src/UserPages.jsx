@@ -149,12 +149,12 @@ export function SettingsPage({ onThemeChange }) {
   const [working, setWorking] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [connected, setConnected] = useState(false)
+  const [leetcodeInput, setLeetcodeInput] = useState('')
   const [pendingDeletePassword, setPendingDeletePassword] = useState(null)
   const { register, handleSubmit, reset, control, formState: { errors } } = useForm({ defaultValues: defaultSettings })
   const passwordForm = useForm()
   const deleteForm = useForm()
   const theme = useWatch({ control, name: 'theme' })
-  const leetcodeUsername = useWatch({ control, name: 'leetcode_username' })
   const lastSyncedAt = useWatch({ control, name: 'leetcode_last_synced_at' })
 
   useEffect(() => {
@@ -168,6 +168,7 @@ export function SettingsPage({ onThemeChange }) {
           reminder_time: data.reminder_time?.slice(0, 5) || '09:00',
         })
         setConnected(Boolean(data.leetcode_username))
+        setLeetcodeInput(data.leetcode_username || '')
         onThemeChange(data.theme)
       })
       .catch((requestError) => {
@@ -184,12 +185,30 @@ export function SettingsPage({ onThemeChange }) {
     setSettingsError('')
     setSettingsMessage('')
     try {
+      const {
+        daily_problem_goal,
+        assessment_day,
+        assessment_time_limit,
+        email_reminders,
+        reminder_time,
+        theme,
+        timezone,
+      } = values
       const saved = await authenticatedRequest('/api/users/settings/', {
         method: 'PUT',
-        body: JSON.stringify({ ...values, assessment_time_limit: Number(values.assessment_time_limit), daily_problem_goal: Number(values.daily_problem_goal) }),
+        body: JSON.stringify({
+          daily_problem_goal: Number(daily_problem_goal),
+          assessment_day,
+          assessment_time_limit: Number(assessment_time_limit),
+          email_reminders,
+          reminder_time,
+          theme,
+          timezone,
+        }),
       })
       reset({ ...saved, reminder_time: saved.reminder_time?.slice(0, 5) || '09:00' })
       setConnected(Boolean(saved.leetcode_username))
+      setLeetcodeInput(saved.leetcode_username || '')
       onThemeChange(saved.theme)
       setSettingsMessage('Settings saved.')
     } catch (saveError) {
@@ -209,14 +228,44 @@ export function SettingsPage({ onThemeChange }) {
     setSettingsError('')
     setSettingsMessage('')
     try {
-      const result = await authenticatedRequest('/api/users/sync-leetcode/', { method: 'POST' })
-      setSettingsMessage(`Sync complete. ${result.imported_count} new problem${result.imported_count === 1 ? '' : 's'} added.`)
+      const result = await authenticatedRequest('/api/leetcode/sync/', { method: 'POST' })
+      setSettingsMessage(`Sync complete. ${result.added} new problem${result.added === 1 ? '' : 's'} added.`)
       const updated = await authenticatedRequest('/api/users/settings/')
       reset({ ...updated, reminder_time: updated.reminder_time?.slice(0, 5) || '09:00' })
+      window.dispatchEvent(new Event('recalldsa:leetcode-synced'))
     } catch (syncError) {
       setSettingsError(syncError.message)
     } finally {
       setSyncing(false)
+    }
+  }
+
+  const connectLeetCode = async () => {
+    setWorking(true)
+    setSettingsError('')
+    setSettingsMessage('')
+    try {
+      const result = await authenticatedRequest('/api/leetcode/connect/', {
+        method: 'POST',
+        body: JSON.stringify({ username: leetcodeInput }),
+      })
+      setConnected(true)
+      setLeetcodeInput(result.username || leetcodeInput)
+      const updated = await authenticatedRequest('/api/users/settings/')
+      reset({ ...updated, reminder_time: updated.reminder_time?.slice(0, 5) || '09:00' })
+      setSettingsMessage(`Connected. ${result.added} new problem${result.added === 1 ? '' : 's'} added.`)
+      window.dispatchEvent(new Event('recalldsa:leetcode-synced'))
+    } catch (connectError) {
+      try {
+        const status = await authenticatedRequest('/api/leetcode/status/')
+        setConnected(status.connected)
+        if (status.connected) setLeetcodeInput(status.username)
+      } catch {
+        setConnected(false)
+      }
+      setSettingsError(connectError.message)
+    } finally {
+      setWorking(false)
     }
   }
 
@@ -225,9 +274,11 @@ export function SettingsPage({ onThemeChange }) {
     setSettingsError('')
     setSettingsMessage('')
     try {
-      const updated = await authenticatedRequest('/api/users/disconnect-leetcode/', { method: 'POST' })
+      await authenticatedRequest('/api/leetcode/disconnect/', { method: 'DELETE' })
+      const updated = await authenticatedRequest('/api/users/settings/')
       reset({ ...updated, reminder_time: updated.reminder_time?.slice(0, 5) || '09:00' })
       setConnected(false)
+      setLeetcodeInput('')
       setSettingsMessage('LeetCode disconnected.')
     } catch (disconnectError) {
       setSettingsError(disconnectError.message)
@@ -291,7 +342,10 @@ export function SettingsPage({ onThemeChange }) {
 
         <div className="settings-panel">
           {activeTab !== 'account' && (
-            <form className="settings-form" onSubmit={handleSubmit(saveSettings)}>
+            <form className="settings-form" onSubmit={activeTab === 'integrations' ? (event) => {
+              event.preventDefault()
+              if (!connected) connectLeetCode()
+            } : handleSubmit(saveSettings)}>
               {activeTab === 'preferences' && <>
                 <div className="settings-section-heading"><h2>Practice preferences</h2><p>Set a steady target and schedule for your weekly recall check.</p></div>
                 <label className="settings-field">Daily problem goal
@@ -337,15 +391,15 @@ export function SettingsPage({ onThemeChange }) {
               {activeTab === 'integrations' && <>
                 <div className="settings-section-heading"><h2>Integrations</h2><p>Bring your recently accepted LeetCode problems into your RecallDSA history.</p></div>
                 <section className="integration-card">
-                  <div className="integration-brand"><span aria-hidden="true">LC</span><div><h3>LeetCode</h3><p>Connect your public LeetCode profile by username.</p></div></div>
-                  <label className="settings-field">LeetCode username
-                    <input autoComplete="off" placeholder="your-leetcode-username" {...register('leetcode_username', { validate: (value) => activeTab !== 'integrations' || Boolean(value?.trim()) || 'Enter your LeetCode username.', maxLength: { value: 100, message: 'Username must be 100 characters or fewer.' }, pattern: { value: /^[A-Za-z0-9_-]*$/, message: 'Use letters, numbers, underscores, or hyphens.' } })} />
-                    {errors.leetcode_username && <span className="field-error">{errors.leetcode_username.message}</span>}
-                  </label>
-                  <p className="integration-status"><span className={connected ? 'status-dot connected' : 'status-dot'} />{connected ? `Connected as ${leetcodeUsername}` : 'Not connected'}</p>
-                  <p className="field-help">Sync imports up to 20 recent accepted submissions that match problems in RecallDSA.</p>
+                  <div className="integration-brand"><span aria-hidden="true">LC</span><div><h3>LeetCode</h3><p>Connect a public LeetCode profile to keep your tracker in sync.</p></div></div>
+                  {!connected && <label className="settings-field">LeetCode username or profile URL
+                    <input autoComplete="off" onChange={(event) => setLeetcodeInput(event.target.value)} placeholder="username or https://leetcode.com/u/username/" value={leetcodeInput} />
+                  </label>}
+                  <p className="integration-status"><span className={connected ? 'status-dot connected' : 'status-dot'} />{connected ? <>Connected as <strong>{leetcodeInput}</strong></> : 'Not connected'}</p>
+                  {connected && <p className="field-help">Profile: <a href={`https://leetcode.com/u/${encodeURIComponent(leetcodeInput)}/`} rel="noreferrer" target="_blank">View on LeetCode ↗</a></p>}
+                  <p className="field-help">Sync imports your five newest unique Accepted problems into your tracked problems without changing existing review schedules.</p>
                   <div className="user-form-actions">
-                    <button className="primary-button user-action-button" disabled={working || syncing} type="submit">{working ? 'Connecting...' : connected ? 'Update connection' : 'Connect LeetCode'}</button>
+                    {!connected && <button className="primary-button user-action-button" disabled={working || syncing || !leetcodeInput.trim()} onClick={connectLeetCode} type="button">{working ? 'Connecting...' : 'Connect LeetCode'}</button>}
                     {connected && <button className="secondary-button" disabled={working || syncing} onClick={syncLeetCode} type="button">{syncing ? 'Syncing...' : 'Sync now'}</button>}
                     {connected && <button className="danger-button" disabled={working || syncing} onClick={disconnectLeetCode} type="button">Disconnect</button>}
                   </div>

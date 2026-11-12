@@ -229,6 +229,25 @@ function Dashboard() {
     if (!user) return
 
     let active = true
+    authenticatedRequest('/api/leetcode/sync/', {
+      method: 'POST',
+      body: JSON.stringify({ automatic: true }),
+    }).then((result) => {
+      if (!active || result.skipped) return
+      window.dispatchEvent(new Event('recalldsa:leetcode-synced'))
+      if (!result.added) return
+      return Promise.all([
+        authenticatedRequest('/api/dashboard/stats/'),
+        authenticatedRequest('/api/revisions/due-today/'),
+      ]).then(([stats, revisions]) => {
+        if (!active) return
+        setDashboardMetrics(stats)
+        setTodayRevisions(revisions)
+      })
+    }).catch((syncError) => {
+      if (active) toast.error(`LeetCode auto-sync failed: ${syncError.message}`)
+    })
+
     Promise.all([
       authenticatedRequest('/api/dashboard/stats/'),
       authenticatedRequest('/api/revisions/due-today/'),

@@ -71,7 +71,7 @@ class UserProfileAndSettingsTests(TestCase):
         self.assertIn('assessment_day', invalid_response.json())
         self.assertIn('timezone', invalid_response.json())
 
-    def test_settings_update_persists_preferences_and_connection(self):
+    def test_settings_update_persists_preferences(self):
         response = self.client.put('/api/users/settings/', {
             'daily_problem_goal': 5,
             'assessment_day': 'friday',
@@ -80,7 +80,6 @@ class UserProfileAndSettingsTests(TestCase):
             'reminder_time': '08:30',
             'theme': 'dark',
             'timezone': 'America/New_York',
-            'leetcode_username': 'ada_codes',
         }, format='json')
 
         self.assertEqual(response.status_code, 200)
@@ -88,7 +87,15 @@ class UserProfileAndSettingsTests(TestCase):
         self.assertEqual(settings_record.daily_problem_goal, 5)
         self.assertEqual(settings_record.assessment_day, 'friday')
         self.assertFalse(settings_record.email_reminders)
-        self.assertEqual(settings_record.leetcode_username, 'ada_codes')
+        self.assertEqual(settings_record.leetcode_username, '')
+
+    def test_settings_cannot_bypass_leetcode_profile_validation(self):
+        response = self.client.put('/api/users/settings/', {
+            'leetcode_username': 'ada_codes',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(UserSettings.objects.filter(user=self.user, leetcode_username='ada_codes').exists())
 
     def test_change_password_checks_current_password_and_updates_hash(self):
         invalid_response = self.client.post('/api/users/change-password/', {
@@ -129,27 +136,27 @@ class UserProfileAndSettingsTests(TestCase):
         self.assertEqual(settings_record.leetcode_username, '')
         self.assertIsNone(settings_record.leetcode_last_synced_at)
 
-    @patch('revise.integrations.fetch_recent_accepted_submissions')
-    def test_sync_imports_known_recent_accepted_problems(self, fetch_submissions):
-        problem = Problem.objects.create(
-            title='Two Sum',
-            leetcode_id=990102,
-            link='https://leetcode.com/problems/two-sum/',
-            difficulty='Easy',
-        )
+    @patch('revise.views.sync_recent_problems')
+    def test_sync_returns_structured_recent_problem_result(self, sync_recent):
         UserSettings.objects.create(user=self.user, leetcode_username='ada_codes')
-        fetch_submissions.return_value = [{
-            'titleSlug': problem.slug,
-            'timestamp': '2026-10-20T12:00:00+00:00',
-        }]
+        sync_recent.return_value = {
+            'success': True,
+            'username': 'ada_codes',
+            'fetched': 1,
+            'selected': 1,
+            'added': 1,
+            'already_tracked': 0,
+            'last_synced_at': timezone.now(),
+            'message': 'LeetCode synchronization completed',
+            'problems': [],
+        }
 
-        response = self.client.post('/api/users/sync-leetcode/')
+        response = self.client.post('/api/leetcode/sync/')
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['imported_count'], 1)
-        self.assertTrue(UserProblem.objects.get(user=self.user, problem=problem).solved)
-        self.assertEqual(UserProblem.objects.get(user=self.user, problem=problem).source, 'import')
-        fetch_submissions.assert_called_once_with('ada_codes')
+        self.assertEqual(response.json()['selected'], 1)
+        sync_recent.assert_called_once()
 
     def test_assessment_uses_the_users_configured_duration(self):
         UserSettings.objects.create(user=self.user, assessment_time_limit=45)

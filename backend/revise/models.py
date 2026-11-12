@@ -257,6 +257,26 @@ class UserSettings(models.Model):
     timezone = models.CharField(max_length=64, default='UTC')
     leetcode_username = models.CharField(max_length=100, blank=True, default='')
     leetcode_last_synced_at = models.DateTimeField(null=True, blank=True)
+    leetcode_sync_lock_token = models.CharField(max_length=36, blank=True, default='')
+    leetcode_sync_lock_until = models.DateTimeField(null=True, blank=True)
+    leetcode_last_sync_attempt_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f'{self.user} settings'
+
+
+class LeetCodeSyncedProblem(models.Model):
+    user = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, related_name='leetcode_synced_problems')
+    problem = models.ForeignKey(Problem, on_delete=models.CASCADE, related_name='leetcode_sync_entries')
+    title_slug = models.SlugField(max_length=255)
+    accepted_at = models.DateTimeField()
+    synced_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ['-accepted_at', 'problem_id']
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'problem'], name='unique_leetcode_synced_user_problem'),
+        ]
+
+    def __str__(self):
+        return f'{self.user} - {self.problem} ({self.accepted_at})'

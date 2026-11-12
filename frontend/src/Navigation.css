@@ -291,6 +291,23 @@
   margin-top: 24px;
 }
 
+.tracked-problem-section {
+  margin-top: 36px;
+}
+
+.leetcode-source-label {
+  background: color-mix(in srgb, var(--green) 10%, var(--white));
+  border: 1px solid color-mix(in srgb, var(--green) 22%, transparent);
+  border-radius: 999px;
+  color: var(--green);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: .04em;
+  margin-left: auto;
+  padding: 4px 8px;
+  text-transform: uppercase;
+}
+
 .route-page .assessment-section {
   margin: 0;
 }

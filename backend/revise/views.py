@@ -1,8 +1,8 @@
 from datetime import datetime, time, timedelta
+from uuid import uuid4
 from django.contrib.auth import authenticate
 from django.contrib.auth.hashers import check_password
 from django.db import transaction
-from django.utils.dateparse import parse_datetime
 from django.db.models import Avg, Count, Exists, F, Min, OuterRef, Q, Window
 from django.db.models.functions import TruncDate
 from django.db.models.functions.window import RowNumber
@@ -30,6 +30,7 @@ from .serializers import (
 from .models import (
     Assessment,
     AssessmentProblem,
+    LeetCodeSyncedProblem,
     Problem,
     ReviewEvent,
     UserProblem,
@@ -50,6 +51,7 @@ from .integrations import (
     RevisionSheetGenerationError,
     generate_revision_sheet_content,
 )
+from .leetcode import LeetCodeError, normalize_leetcode_username, sync_recent_problems, validate_public_profile
 from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework import status
@@ -112,6 +114,10 @@ def home(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def tracked_problems(request):
+    recently_synced_at = dict(
+        LeetCodeSyncedProblem.objects.filter(user=request.user)
+        .values_list('problem_id', 'accepted_at')
+    )
     progress_items = UserProblemProgress.objects.filter(
         user=request.user,
         is_tracked=True,
@@ -125,6 +131,9 @@ def tracked_problems(request):
             'interval': progress.interval,
             'next_review_date': progress.next_review_date,
             'last_reviewed_at': progress.last_reviewed_at,
+            'source': progress.source,
+            'recently_synced': progress.problem_id in recently_synced_at,
+            'accepted_at': recently_synced_at.get(progress.problem_id),
         }
         for progress in progress_items
     ])
@@ -697,12 +706,14 @@ def user_profile(request):
 def user_settings(request):
     settings_record, _ = UserSettings.objects.get_or_create(user=request.user)
     if request.method == 'PUT':
+        if 'leetcode_username' in request.data:
+            return Response(
+                {'leetcode_username': ['Use the LeetCode connection endpoint to validate and connect an account.']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         serializer = UserSettingsSerializer(settings_record, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        if 'leetcode_username' in serializer.validated_data and not settings_record.leetcode_username:
-            settings_record.leetcode_last_synced_at = None
-            settings_record.save(update_fields=['leetcode_last_synced_at'])
         return Response(serializer.data)
     return Response(UserSettingsSerializer(settings_record).data)
 
@@ -729,61 +740,177 @@ def delete_account(request):
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+def _leetcode_status(user):
+    settings_record, _ = UserSettings.objects.get_or_create(user=user)
+    problems = LeetCodeSyncedProblem.objects.filter(user=user).select_related('problem')
+    return {
+        'connected': bool(settings_record.leetcode_username),
+        'username': settings_record.leetcode_username or None,
+        'profile_url': (
+            f'https://leetcode.com/u/{settings_record.leetcode_username}/'
+            if settings_record.leetcode_username else None
+        ),
+        'last_synced_at': settings_record.leetcode_last_synced_at,
+        'problems': [
+            {
+                'id': entry.problem_id,
+                'title': entry.problem.title,
+                'title_slug': entry.title_slug,
+                'url': f'https://leetcode.com/problems/{entry.title_slug}/',
+                'difficulty': entry.problem.difficulty,
+                'accepted_at': entry.accepted_at,
+            }
+            for entry in problems
+        ],
+    }
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def leetcode_status(request):
+    return Response(_leetcode_status(request.user))
+
+
+def _acquire_leetcode_sync_lock(user, automatic, force=False):
+    now = timezone.now()
+    settings_record, _ = UserSettings.objects.get_or_create(user=user)
+    if automatic and not force and settings_record.leetcode_last_synced_at:
+        if settings_record.leetcode_last_synced_at > now - timedelta(minutes=15):
+            return settings_record, None, 'Synchronization is not due yet.'
+    if (
+        automatic
+        and not force
+        and settings_record.leetcode_last_sync_attempt_at
+        and settings_record.leetcode_last_sync_attempt_at > now - timedelta(minutes=1)
+    ):
+        return settings_record, None, 'A recent synchronization attempt is still within its retry cooldown.'
+
+    if settings_record.leetcode_sync_lock_until and settings_record.leetcode_sync_lock_until > now:
+        if automatic:
+            return settings_record, None, 'A synchronization is already in progress.'
+        raise LeetCodeError('A LeetCode synchronization is already in progress.', 429)
+
+    if (
+        not automatic
+        and not force
+        and settings_record.leetcode_last_sync_attempt_at
+        and settings_record.leetcode_last_sync_attempt_at > now - timedelta(seconds=15)
+    ):
+        raise LeetCodeError('Please wait a few seconds before syncing again.', 429)
+
+    token = str(uuid4())
+    claimed = UserSettings.objects.filter(pk=settings_record.pk).filter(
+        Q(leetcode_sync_lock_until__isnull=True)
+        | Q(leetcode_sync_lock_until__lte=now)
+    ).update(
+        leetcode_sync_lock_token=token,
+        leetcode_sync_lock_until=now + timedelta(minutes=3),
+        leetcode_last_sync_attempt_at=now,
+    )
+    if not claimed:
+        if automatic:
+            return settings_record, None, 'A synchronization is already in progress.'
+        raise LeetCodeError('A LeetCode synchronization is already in progress.', 429)
+    return settings_record, token, None
+
+
+def _synchronize_leetcode(user, automatic=False, force=False):
+    settings_record, _ = UserSettings.objects.get_or_create(user=user)
+    if not settings_record.leetcode_username:
+        if automatic:
+            return Response({
+                'success': True,
+                'skipped': True,
+                'message': 'No LeetCode account is connected.',
+                'problems': [],
+            })
+        return Response({'detail': 'Connect a LeetCode account before syncing.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        settings_record, lock_token, skip_reason = _acquire_leetcode_sync_lock(
+            user,
+            automatic=automatic,
+            force=force,
+        )
+        if skip_reason:
+            return Response({
+                'success': True,
+                'skipped': True,
+                'username': settings_record.leetcode_username,
+                'last_synced_at': settings_record.leetcode_last_synced_at,
+                'message': skip_reason,
+                'problems': [],
+            })
+    except LeetCodeError as error:
+        return Response({'detail': str(error)}, status=error.status_code)
+
+    try:
+        result = sync_recent_problems(
+            user,
+            settings_record.leetcode_username,
+            lock_token=lock_token,
+        )
+        result['imported_count'] = result['added']
+        return Response(result)
+    except LeetCodeError as error:
+        return Response({'detail': str(error)}, status=error.status_code)
+    except (OSError, ValueError) as error:
+        return Response({'detail': str(error)}, status=status.HTTP_502_BAD_GATEWAY)
+    finally:
+        UserSettings.objects.filter(
+            pk=settings_record.pk,
+            leetcode_sync_lock_token=lock_token,
+        ).update(leetcode_sync_lock_token='', leetcode_sync_lock_until=None)
+
+
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def connect_leetcode(request):
+    value = request.data.get('username', request.data.get('profile_url'))
+    try:
+        username = normalize_leetcode_username(value)
+        username = validate_public_profile(username)
+    except ValueError as error:
+        return Response({'username': [str(error)]}, status=status.HTTP_400_BAD_REQUEST)
+    except LeetCodeError as error:
+        return Response({'detail': str(error)}, status=error.status_code)
+
+    settings_record, _ = UserSettings.objects.get_or_create(user=request.user)
+    changed_connection = settings_record.leetcode_username != username
+    if changed_connection:
+        settings_record.leetcode_username = username
+        settings_record.leetcode_last_synced_at = None
+        settings_record.save(update_fields=['leetcode_username', 'leetcode_last_synced_at'])
+        LeetCodeSyncedProblem.objects.filter(user=request.user).delete()
+    return _synchronize_leetcode(request.user, force=changed_connection)
+
+
+@api_view(['DELETE', 'POST'])
 @permission_classes([IsAuthenticated])
 def disconnect_leetcode(request):
     settings_record, _ = UserSettings.objects.get_or_create(user=request.user)
     settings_record.leetcode_username = ''
     settings_record.leetcode_last_synced_at = None
-    settings_record.save(update_fields=['leetcode_username', 'leetcode_last_synced_at'])
+    settings_record.leetcode_sync_lock_token = ''
+    settings_record.leetcode_sync_lock_until = None
+    settings_record.save(update_fields=[
+        'leetcode_username',
+        'leetcode_last_synced_at',
+        'leetcode_sync_lock_token',
+        'leetcode_sync_lock_until',
+    ])
+    if request.method == 'DELETE':
+        return Response(status=status.HTTP_204_NO_CONTENT)
     return Response(UserSettingsSerializer(settings_record).data)
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def sync_leetcode(request):
-    settings_record, _ = UserSettings.objects.get_or_create(user=request.user)
-    if not settings_record.leetcode_username:
-        return Response({'detail': 'Connect a LeetCode username before syncing.'}, status=status.HTTP_400_BAD_REQUEST)
-
-    from .integrations import fetch_recent_accepted_submissions
-    try:
-        submissions = fetch_recent_accepted_submissions(settings_record.leetcode_username)
-    except (OSError, ValueError) as error:
-        return Response({'detail': str(error)}, status=status.HTTP_502_BAD_GATEWAY)
-
-    imported_count = 0
-    for submission in submissions:
-        problem = Problem.objects.filter(slug=submission['titleSlug']).first()
-        if problem is None:
-            continue
-        reviewed_at = parse_datetime(submission['timestamp'])
-        progress, created = UserProblem.objects.get_or_create(
-            user=request.user,
-            problem=problem,
-            defaults={
-                'solved': True,
-                'source': 'import',
-                'last_reviewed': reviewed_at,
-                'revision_count': 1,
-            },
-        )
-        if created:
-            imported_count += 1
-        elif not progress.solved:
-            progress.solved = True
-            progress.source = 'import'
-            progress.last_reviewed = reviewed_at
-            progress.revision_count = max(progress.revision_count, 1)
-            progress.save(update_fields=['solved', 'source', 'last_reviewed', 'revision_count'])
-            imported_count += 1
-
-    settings_record.leetcode_last_synced_at = timezone.now()
-    settings_record.save(update_fields=['leetcode_last_synced_at'])
-    return Response({
-        'imported_count': imported_count,
-        'last_synced_at': settings_record.leetcode_last_synced_at,
-    })
+    automatic = request.data.get('automatic', False)
+    if not isinstance(automatic, bool):
+        return Response({'automatic': ['Must be a boolean.']}, status=status.HTTP_400_BAD_REQUEST)
+    return _synchronize_leetcode(request.user, automatic=automatic)
 
 
 @api_view(['POST'])
