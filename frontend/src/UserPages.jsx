@@ -169,7 +169,6 @@ export function SettingsPage({ onThemeChange }) {
         })
         setConnected(Boolean(data.leetcode_username))
         setLeetcodeInput(data.leetcode_username || '')
-        onThemeChange(data.theme)
       })
       .catch((requestError) => {
         if (active) setSettingsError(requestError.message)
@@ -178,7 +177,7 @@ export function SettingsPage({ onThemeChange }) {
         if (active) setLoading(false)
       })
     return () => { active = false }
-  }, [authenticatedRequest, onThemeChange, reset])
+  }, [authenticatedRequest, reset])
 
   const saveSettings = async (values) => {
     setWorking(true)
