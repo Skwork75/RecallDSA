@@ -30,6 +30,10 @@ export function ProblemsPage() {
   const [selectedProblemIds, setSelectedProblemIds] = useState([])
   const [generatingSheet, setGeneratingSheet] = useState(false)
   const [removingId, setRemovingId] = useState(null)
+  const [search, setSearch] = useState('')
+  const [difficultyFilter, setDifficultyFilter] = useState('all')
+  const [patternFilter, setPatternFilter] = useState('all')
+  const [reviewFilter, setReviewFilter] = useState('all')
   const { authenticatedRequest } = useAuth()
   const { data, loading, error } = useRequest('/api/problems/tracked/', reloadKey)
   const isValidResponse = Array.isArray(data)
@@ -37,7 +41,18 @@ export function ProblemsPage() {
   const recentlySynced = problems
     .filter(({ recently_synced }) => recently_synced)
     .sort((left, right) => new Date(right.accepted_at) - new Date(left.accepted_at))
-  const otherTracked = problems.filter(({ recently_synced }) => !recently_synced)
+  const availablePatterns = [...new Set(problems.map(({ problem }) => problem.pattern?.p_name || 'Uncategorized pattern'))].sort()
+  const filteredProblems = problems.filter((entry) => {
+    const patternName = entry.problem.pattern?.p_name || 'Uncategorized pattern'
+    const matchesSearch = `${entry.problem.title} ${patternName}`.toLowerCase().includes(search.trim().toLowerCase())
+    const matchesDifficulty = difficultyFilter === 'all' || entry.problem.difficulty === difficultyFilter
+    const matchesPattern = patternFilter === 'all' || patternName === patternFilter
+    const matchesReviewStatus = reviewFilter === 'all'
+      || (reviewFilter === 'reviewed' ? Boolean(entry.last_reviewed_at) : !entry.last_reviewed_at)
+    return matchesSearch && matchesDifficulty && matchesPattern && matchesReviewStatus
+  })
+  const visibleRecentlySynced = filteredProblems.filter(({ recently_synced: recentlySyncedProblem }) => recentlySyncedProblem)
+  const visibleOtherTracked = filteredProblems.filter(({ recently_synced: recentlySyncedProblem }) => !recentlySyncedProblem)
 
   useEffect(() => {
     const reload = () => setReloadKey((key) => key + 1)
@@ -89,27 +104,30 @@ export function ProblemsPage() {
     }
   }
 
-  const renderProblemCard = ({ id, problem, source, recently_synced: recentlySyncedProblem }) => (
+  const renderProblemCard = ({ id, problem, source, recently_synced: recentlySyncedProblem, last_reviewed_at: lastReviewedAt }) => (
     <article className="problem-card" key={id}>
       <div className="card-topline">
         <span className="difficulty-label">{problem.difficulty}</span>
         <span className="question-number">#{problem.leetcode_id}</span>
-        {(source === 'leetcode_sync' || recentlySyncedProblem) && <span className="leetcode-source-label">LeetCode</span>}
+        <span className={`review-status-label${lastReviewedAt ? ' is-reviewed' : ''}`}>{lastReviewedAt ? 'Reviewed' : 'Not reviewed'}</span>
+        <span className={`problem-source-label${source === 'leetcode_sync' || recentlySyncedProblem ? ' leetcode-source-label' : ''}`}>
+          {source === 'leetcode_sync' || recentlySyncedProblem ? 'LeetCode' : source === 'sheet' ? 'DSA Sheet' : 'Manual'}
+        </span>
       </div>
       <h3>{problem.title}</h3>
       <p className="pattern-label">{problem.pattern?.p_name || 'Uncategorized pattern'}</p>
       <div className="card-footer">
-        <Link to={`/problems/${problem.id}`}>View details <span>↗</span></Link>
+        <Link to={`/problems/${problem.id}`}>Open Problem <span>↗</span></Link>
         <div className="problem-card-actions">
           {problem.link && <a href={problem.link} rel="noreferrer" target="_blank">LeetCode ↗</a>}
           <button
-            aria-label={`Remove ${problem.title} from your problems`}
+            aria-label={`Untrack ${problem.title}`}
             className="problem-remove-button"
             disabled={removingId === id}
             onClick={() => removeProblem(id, problem.title)}
             type="button"
           >
-            {removingId === id ? 'Removing…' : 'Remove'}
+            {removingId === id ? 'Removing…' : 'Untrack'}
           </button>
         </div>
       </div>
@@ -144,19 +162,30 @@ export function ProblemsPage() {
       {error && <div className="empty-state error-state" role="alert">{error}</div>}
       {!loading && !error && !isValidResponse && <div className="empty-state error-state" role="alert">The tracked problems response had an unexpected format.</div>}
       {!loading && !error && isValidResponse && problems.length === 0 && <div className="empty-state">No problems tracked yet. Start with a curated <Link to="/sheets">DSA sheet</Link> or browse your <Link to="/dashboard">dashboard</Link>.</div>}
-      {!loading && !error && isValidResponse && recentlySynced.length > 0 && (
+      {!loading && !error && isValidResponse && problems.length > 0 && (
+        <div className="library-tools problem-tracker-tools" aria-label="Filter tracked problems">
+          <label className="search-field"><span aria-hidden="true">⌕</span><input aria-label="Search tracked problems" onChange={(event) => setSearch(event.target.value)} placeholder="Search problems or patterns" value={search} /></label>
+          <div className="problem-filter-selects">
+            <label>Difficulty<select aria-label="Filter by difficulty" onChange={(event) => setDifficultyFilter(event.target.value)} value={difficultyFilter}><option value="all">All difficulties</option>{['Easy', 'Medium', 'Hard'].map((difficulty) => <option key={difficulty} value={difficulty}>{difficulty}</option>)}</select></label>
+            <label>Pattern<select aria-label="Filter by pattern" onChange={(event) => setPatternFilter(event.target.value)} value={patternFilter}><option value="all">All patterns</option>{availablePatterns.map((pattern) => <option key={pattern} value={pattern}>{pattern}</option>)}</select></label>
+            <label>Review status<select aria-label="Filter by review status" onChange={(event) => setReviewFilter(event.target.value)} value={reviewFilter}><option value="all">All statuses</option><option value="reviewed">Reviewed</option><option value="not-reviewed">Not reviewed</option></select></label>
+          </div>
+        </div>
+      )}
+      {!loading && !error && isValidResponse && problems.length > 0 && filteredProblems.length === 0 && <div className="empty-state">No tracked problems match these filters. Try changing your search or filters.</div>}
+      {!loading && !error && isValidResponse && visibleRecentlySynced.length > 0 && (
         <section aria-labelledby="recently-synced-title" className="tracked-problem-section">
           <div className="section-heading">
             <div><p className="eyebrow">LEETCODE IMPORT</p><h2 id="recently-synced-title">Recently synced</h2></div>
-            <span className="result-count">{recentlySynced.length} problem{recentlySynced.length === 1 ? '' : 's'}</span>
+            <span className="result-count">{visibleRecentlySynced.length} problem{visibleRecentlySynced.length === 1 ? '' : 's'}</span>
           </div>
-          <div className="problem-grid">{recentlySynced.map(renderProblemCard)}</div>
+          <div className="problem-grid">{visibleRecentlySynced.map(renderProblemCard)}</div>
         </section>
       )}
-      {!loading && !error && isValidResponse && otherTracked.length > 0 && (
+      {!loading && !error && isValidResponse && visibleOtherTracked.length > 0 && (
         <section aria-labelledby="all-tracked-title" className="tracked-problem-section">
-          {recentlySynced.length > 0 && <div className="section-heading"><div><p className="eyebrow">YOUR LIBRARY</p><h2 id="all-tracked-title">All other tracked problems</h2></div><span className="result-count">{otherTracked.length} problem{otherTracked.length === 1 ? '' : 's'}</span></div>}
-          <div className="problem-grid">{otherTracked.map(renderProblemCard)}</div>
+          {recentlySynced.length > 0 && <div className="section-heading"><div><p className="eyebrow">YOUR LIBRARY</p><h2 id="all-tracked-title">All other tracked problems</h2></div><span className="result-count">{visibleOtherTracked.length} problem{visibleOtherTracked.length === 1 ? '' : 's'}</span></div>}
+          <div className="problem-grid">{visibleOtherTracked.map(renderProblemCard)}</div>
         </section>
       )}
       <AddProblemModalLayer

@@ -67,7 +67,10 @@ function UserDropdown({ user, onClose }) {
 export default function Navbar({ theme, onToggleTheme }) {
   const { user, authenticatedRequest } = useAuth()
   const hamburgerRef = useRef(null)
+  const notificationRef = useRef(null)
   const [dueCount, setDueCount] = useState(0)
+  const [dueRevisions, setDueRevisions] = useState([])
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
 
@@ -75,6 +78,7 @@ export default function Navbar({ theme, onToggleTheme }) {
     authenticatedRequest('/api/revisions/due-today/')
       .then((revisions) => {
         if (!Array.isArray(revisions)) throw new Error('Unexpected response while loading due reviews.')
+        setDueRevisions(revisions)
         setDueCount(revisions.length)
       })
       .catch((error) => {
@@ -89,6 +93,22 @@ export default function Navbar({ theme, onToggleTheme }) {
       window.removeEventListener('recalldsa:revisions-updated', refreshDueCount)
     }
   }, [refreshDueCount])
+
+  useEffect(() => {
+    if (!notificationsOpen) return undefined
+    const closeOnOutsideClick = (event) => {
+      if (!notificationRef.current?.contains(event.target)) setNotificationsOpen(false)
+    }
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setNotificationsOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOnOutsideClick)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [notificationsOpen])
 
   useEffect(() => {
     document.body.classList.toggle('drawer-open', drawerOpen)
@@ -125,10 +145,16 @@ export default function Navbar({ theme, onToggleTheme }) {
       </nav>
 
       <div className="navbar-actions">
-        <NavLink aria-label={`${dueCount} reviews due`} className="notification-button tooltip-target" data-tooltip={`${dueCount} reviews due`} title={`${dueCount} reviews due`} to="/revisions">
+        <div className="navbar-notifications" ref={notificationRef}>
+          <button aria-controls="navbar-notification-panel" aria-expanded={notificationsOpen} aria-label={`${dueCount} reviews due`} className="notification-button tooltip-target" data-tooltip={`${dueCount} reviews due`} onClick={() => setNotificationsOpen((open) => !open)} title={`${dueCount} reviews due`} type="button">
           <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" /></svg>
           {dueCount > 0 && <span className="notification-count">{dueCount > 99 ? '99+' : dueCount}</span>}
-        </NavLink>
+          </button>
+          {notificationsOpen && <section aria-label="Due review notifications" className="navbar-notification-panel" id="navbar-notification-panel">
+            <div className="navbar-notification-heading"><div><strong>Due for review</strong><small>{dueCount === 0 ? 'You’re all caught up' : `${dueCount} problem${dueCount === 1 ? '' : 's'} ready`}</small></div><NavLink onClick={() => setNotificationsOpen(false)} to="/revisions">View all</NavLink></div>
+            {dueRevisions.length === 0 ? <p className="navbar-notification-empty">No reviews due right now. Nice work staying on track.</p> : <div className="navbar-notification-list">{dueRevisions.slice(0, 5).map(({ id, problem, overdue_days: overdueDays }) => <NavLink key={id} onClick={() => setNotificationsOpen(false)} to={`/problems/${problem.id}`}><span className="notification-item-dot" /><span><strong>{problem.title}</strong><small>{problem.difficulty} · {overdueDays ? `${overdueDays}d overdue` : 'Due today'}</small></span></NavLink>)}</div>}
+          </section>}
+        </div>
         <button aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'} className="navbar-icon-button theme-button tooltip-target" data-tooltip={isDark ? 'Switch to light mode' : 'Switch to dark mode'} onClick={onToggleTheme} title={isDark ? 'Switch to light mode' : 'Switch to dark mode'} type="button">
           <span aria-hidden="true">{isDark ? '☀' : '☾'}</span>
         </button>

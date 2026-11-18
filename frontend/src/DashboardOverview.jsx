@@ -15,7 +15,7 @@ import {
 } from 'recharts'
 import { AssessmentCard } from './AssessmentPages.jsx'
 
-const chartColors = ['#6667e8', '#16a085', '#e6a23c', '#e76f8a', '#4f9bdd', '#9b72cf']
+const chartColors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)', 'var(--chart-6)']
 
 function StatSkeleton() {
   return <div className="metric-card stats-skeleton" aria-hidden="true"><i /><i /><i /></div>
@@ -73,15 +73,10 @@ function DashboardOverview({
       <section className="dashboard-quick-actions" aria-labelledby="quick-actions-title">
         <div className="dashboard-section-heading"><div><p className="eyebrow">A GOOD NEXT STEP</p><h2 id="quick-actions-title">Quick actions</h2></div></div>
         <div className="quick-action-grid">
-          {dashboardMetrics?.total_problems_tracked === 0 && <>
-            <a className="quick-action-card quick-action-primary" href="/sheets"><span aria-hidden="true">▤</span><div><strong>Explore Sheets</strong><small>Start with a curated interview roadmap.</small></div><b aria-hidden="true">↗</b></a>
-            <a className="quick-action-card" href="#library"><span aria-hidden="true">↻</span><div><strong>Sync LeetCode</strong><small>{dashboardMetrics.has_leetcode_connected ? 'Your imported LeetCode problems are connected.' : 'LeetCode syncing is not connected yet. Browse problems or explore sheets to get started.'}</small></div><b aria-hidden="true">{dashboardMetrics.has_leetcode_connected ? 'View import ↗' : 'Browse problems ↗'}</b></a>
-          </>}
-          {dashboardMetrics?.total_problems_tracked > 0 && dashboardMetrics.problems_due_today === 0 && <>
-            <a className="quick-action-card quick-action-primary" href="#library"><span aria-hidden="true">⌘</span><div><strong>Browse Library</strong><small>Find a new pattern to practice.</small></div><b aria-hidden="true">↗</b></a>
-            <a className="quick-action-card" href="/sheets"><span aria-hidden="true">＋</span><div><strong>Add More</strong><small>Grow your personal revision queue.</small></div><b aria-hidden="true">↗</b></a>
-          </>}
-          {dashboardMetrics?.problems_due_today > 0 && <a className="quick-action-card quick-action-primary review-action" href="#today-revisions"><span aria-hidden="true">◷</span><div><strong>Start Today's Review</strong><small>{dashboardMetrics.problems_due_today} problem{dashboardMetrics.problems_due_today === 1 ? '' : 's'} ready to revisit · about {dashboardMetrics.problems_due_today * 5} min</small></div><b aria-hidden="true">Start ↗</b></a>}
+          <a className="quick-action-card quick-action-primary" href={dashboardMetrics?.problems_due_today > 0 ? '#today-revisions' : '/revisions'}><span aria-hidden="true">◷</span><div><strong>Start Today's Review</strong><small>{dashboardMetrics?.problems_due_today ? `${dashboardMetrics.problems_due_today} problem${dashboardMetrics.problems_due_today === 1 ? '' : 's'} ready to revisit` : 'Check your revision queue'}</small></div><b aria-hidden="true">Start ↗</b></a>
+          <a className="quick-action-card" href="/problems"><span aria-hidden="true">⌕</span><div><strong>Explore Problems</strong><small>Find a problem in your personal tracker.</small></div><b aria-hidden="true">↗</b></a>
+          <a className="quick-action-card" href="/sheets"><span aria-hidden="true">▤</span><div><strong>Practice a Sheet</strong><small>Follow a curated interview roadmap.</small></div><b aria-hidden="true">↗</b></a>
+          <a className="quick-action-card" href="/assessments"><span aria-hidden="true">◇</span><div><strong>Take Assessment</strong><small>Check your recall across patterns.</small></div><b aria-hidden="true">↗</b></a>
         </div>
       </section>
 
@@ -105,14 +100,18 @@ function DashboardOverview({
       <section className="revision-section dashboard-revision-section" id="today-revisions">
         <div className="section-heading"><div><p className="eyebrow">TODAY'S REVISION</p><h2>{dashboardLoading ? "Loading today's revisions…" : todayRevisions.length === 0 ? 'Nothing due today' : `You have ${todayRevisions.length} problem${todayRevisions.length === 1 ? '' : 's'} to revise.`}</h2></div><span className="result-count">{dashboardLoading ? '—' : `${todayRevisions.length} due`}</span></div>
         {dashboardLoading && <div className="revision-skeletons" aria-label="Loading today's revisions"><i /><i /><i /></div>}
-        {!dashboardLoading && todayRevisions.length === 0 ? <div className="empty-state">{dashboardMetrics?.total_problems_tracked ? `No revisions are scheduled for today.${nextReviewDate ? ` Your next review is on ${nextReviewDate}.` : ' Add another problem or explore a new pattern to keep building your queue.'}` : 'Your review queue is empty. Explore a sheet or add a problem to begin.'}</div> : !dashboardLoading && <div className="revision-list">{todayRevisions.map((progress) => <article className="revision-card" key={progress.id}><div className="revision-card-header"><span className={`difficulty-dot ${progress.problem.difficulty.toLowerCase()}`} /><span className="difficulty-label">{progress.problem.difficulty}</span></div><h3>{progress.problem.title}</h3><p className="pattern-label">{progress.problem.pattern?.p_name || 'Uncategorized pattern'}</p><div className="revision-card-footer"><button className="primary-button" onClick={() => onReview(progress.problem)} type="button">Start Revision</button></div></article>)}</div>}
+        {!dashboardLoading && todayRevisions.length === 0 ? <div className="empty-state">{dashboardMetrics?.total_problems_tracked ? `No revisions are scheduled for today.${nextReviewDate ? ` Your next review is on ${nextReviewDate}.` : ' Add another problem or explore a new pattern to keep building your queue.'}` : 'Your review queue is empty. Explore a sheet or add a problem to begin.'}</div> : !dashboardLoading && <div className="revision-list">{todayRevisions.map((progress) => <article className="revision-card" key={progress.id}><div className="revision-card-header"><span className={`difficulty-dot ${progress.problem.difficulty.toLowerCase()}`} /><span className="difficulty-label">{progress.problem.difficulty}</span><span className="revision-due-label">Due today</span></div><h3>{progress.problem.title}</h3><p className="pattern-label">{progress.problem.pattern?.p_name || 'Uncategorized pattern'}</p><div className="revision-card-footer"><button className="primary-button" onClick={() => onReview(progress.problem)} type="button">Start Revision</button></div></article>)}</div>}
       </section>
 
       <div className="dashboard-weekly-assessment"><AssessmentCard /></div>
 
       <section className="dashboard-weak-areas">
         <div className="dashboard-section-heading"><div><p className="eyebrow">PERSONALIZED FOCUS</p><h2>Weak areas</h2></div><a href="/analytics">View analytics ↗</a></div>
-        {!dashboardInsights ? <div className="revision-skeletons" aria-label="Loading recommendations"><i /><i /></div> : dashboardInsights.recommendations.length === 0 ? <div className="analytics-empty">No urgent weak spots yet. Keep reviewing to unlock focused recommendations.</div> : <div className="weak-area-list">{dashboardInsights.recommendations.slice(0, 3).map((recommendation, index) => <article className="weak-area-card" key={`${recommendation.type}-${recommendation.pattern_id ?? index}`}><span className={`weak-area-priority priority-${recommendation.priority}`}>{recommendation.priority}</span><div><strong>{recommendation.title}</strong><p>{recommendation.description}</p></div><a href={recommendation.type === 'overdue' ? '#today-revisions' : '/analytics'}>{recommendation.action_label || 'Review'} <span aria-hidden="true">↗</span></a></article>)}</div>}
+        {!dashboardInsights ? <div className="revision-skeletons" aria-label="Loading recommendations"><i /><i /></div> : dashboardInsights.recommendations.length === 0 ? <div className="analytics-empty">No urgent weak spots yet. Keep reviewing to unlock focused recommendations.</div> : <div className="weak-area-list">{dashboardInsights.recommendations.slice(0, 3).map((recommendation, index) => {
+          const matchingPattern = patterns.find((pattern) => pattern.pattern_id === recommendation.pattern_id)
+          const confidence = matchingPattern?.average_confidence
+          return <article className="weak-area-card" key={`${recommendation.type}-${recommendation.pattern_id ?? index}`}><span className={`weak-area-priority priority-${recommendation.priority}`}>{recommendation.priority}</span><div className="weak-area-copy"><strong>{recommendation.title}</strong><p>{recommendation.description}</p>{confidence !== null && confidence !== undefined && <div aria-label={`Average confidence ${confidence} out of 5`} className="weak-area-progress" role="img"><span style={{ width: `${Math.round((confidence / 5) * 100)}%` }} /></div>}</div><a href={recommendation.type === 'overdue' ? '#today-revisions' : '/analytics'}>{recommendation.action_label || 'Review'} <span aria-hidden="true">↗</span></a></article>
+        })}</div>}
       </section>
     </motion.div>
   )
